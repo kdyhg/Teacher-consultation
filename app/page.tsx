@@ -14,6 +14,7 @@ import {
   EyeOff,
   FileSpreadsheet,
   FileText,
+  KeyRound,
   Loader2,
   MessageSquareText,
   ShieldCheck,
@@ -41,6 +42,7 @@ import type { CounselingGuide, MessageMode, Tone } from "@/lib/local-message";
 
 type MessageSource = "idle" | "openai" | "gemini" | "local";
 type WorkspaceTab = "briefing" | "student" | "consulting" | "exports";
+const GEMINI_KEY_STORAGE = "teacher-consultation-gemini-key";
 
 const toneOptions: Array<{ value: Tone; label: string }> = [
   { value: "warm", label: "따뜻하게" },
@@ -209,6 +211,13 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("briefing");
   const [showRanks, setShowRanks] = useState(true);
+  const [geminiApiKey, setGeminiApiKey] = useState(() =>
+    typeof window === "undefined" ? "" : window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? "",
+  );
+  const [rememberGeminiKey, setRememberGeminiKey] = useState(() =>
+    typeof window === "undefined" ? false : Boolean(window.localStorage.getItem(GEMINI_KEY_STORAGE)),
+  );
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [includePrivateCsv, setIncludePrivateCsv] = useState(false);
   const [includePrivateHtml, setIncludePrivateHtml] = useState(false);
   const [mode, setMode] = useState<MessageMode>("individual");
@@ -232,6 +241,7 @@ export default function Home() {
   const selectedAnalysisStudent = analysis?.students.find((student) => student.id === selectedStudent?.id || student.name === selectedStudent?.name) ?? analysis?.students[0] ?? null;
   const selectedObservation = selectedStudent ? observations[selectedStudent.id] ?? "" : "";
   const activeSource = counselingMemo ? counselingSource : messageSource;
+  const activeGeminiApiKey = geminiApiKey.trim();
 
   const parseUploadedFiles = useCallback(async (files: File[]) => {
     if (!files.length) return;
@@ -292,6 +302,14 @@ export default function Home() {
       setIsDragging(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (rememberGeminiKey && activeGeminiApiKey) {
+      window.localStorage.setItem(GEMINI_KEY_STORAGE, activeGeminiApiKey);
+      return;
+    }
+    window.localStorage.removeItem(GEMINI_KEY_STORAGE);
+  }, [activeGeminiApiKey, rememberGeminiKey]);
 
   useEffect(() => {
     function handleDragOver(event: DragEvent) {
@@ -358,6 +376,7 @@ export default function Home() {
           mode,
           tone,
           includeScores,
+          geminiApiKey: activeGeminiApiKey || undefined,
           teacherName,
           teacherObservation: mode === "individual" ? selectedObservation : undefined,
           student: mode === "individual" ? selectedStudent : undefined,
@@ -398,6 +417,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           teacherObservation: selectedObservation,
+          geminiApiKey: activeGeminiApiKey || undefined,
           student: selectedStudent,
           classContext: {
             year: reports[0]?.year,
@@ -703,6 +723,50 @@ export default function Home() {
 
           {activeTab === "consulting" && (
             <section className="consult-grid">
+              <section className="panel api-key-panel">
+                <div className="panel-title split">
+                  <div>
+                    <KeyRound size={18} />
+                    <h2>개인 Gemini API 키</h2>
+                  </div>
+                  <span className="soft-pill">{activeGeminiApiKey ? "개인 키 사용" : "서버 키 또는 로컬 초안"}</span>
+                </div>
+                <p className="api-key-help">
+                  공유 사이트에서는 각 사용자가 자신의 Gemini API 키를 넣어 AI 기능을 실행할 수 있습니다. 키는 생성 요청 때만 서버 API Route로 전달되며, 저장 체크를 켜지 않으면 브라우저에도 남기지 않습니다.
+                </p>
+                <div className="api-key-row">
+                  <label className="field">
+                    <span>Gemini API 키</span>
+                    <input
+                      type={showGeminiKey ? "text" : "password"}
+                      value={geminiApiKey}
+                      onChange={(event) => setGeminiApiKey(event.target.value)}
+                      placeholder="AIza..."
+                      autoComplete="off"
+                    />
+                  </label>
+                  <button className="action-button" type="button" onClick={() => setShowGeminiKey((value) => !value)}>
+                    {showGeminiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                    <span>{showGeminiKey ? "숨기기" : "보기"}</span>
+                  </button>
+                  <button
+                    className="action-button"
+                    type="button"
+                    onClick={() => {
+                      setGeminiApiKey("");
+                      setRememberGeminiKey(false);
+                    }}
+                    disabled={!geminiApiKey}
+                  >
+                    지우기
+                  </button>
+                </div>
+                <label className="check-row">
+                  <input type="checkbox" checked={rememberGeminiKey} onChange={(event) => setRememberGeminiKey(event.target.checked)} />
+                  <span>이 브라우저에 키 저장</span>
+                </label>
+              </section>
+
               <section className="panel">
                 <div className="panel-title split">
                   <div>

@@ -36,6 +36,12 @@ function isGenerateRequest(value: unknown): value is GenerateRequest {
   return (body.mode === "individual" || body.mode === "class") && (body.tone === "warm" || body.tone === "formal" || body.tone === "brief");
 }
 
+function userProvidedGeminiKey(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return trimmed.length >= 20 ? trimmed : "";
+}
+
 function extractGeminiText(data: GeminiResponse): string {
   return (
     data.candidates
@@ -83,14 +89,14 @@ function finalizeAiMessage(generated: string, fallback: string) {
   return { message, usedFallback: false };
 }
 
-async function generateWithGemini(prompt: string): Promise<string> {
-  if (!GEMINI_API_KEY) throw new Error("Gemini API 키가 없습니다.");
+async function generateWithGemini(prompt: string, apiKey: string): Promise<string> {
+  if (!apiKey) throw new Error("Gemini API 키가 없습니다.");
 
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-goog-api-key": GEMINI_API_KEY,
+      "x-goog-api-key": apiKey,
     },
     body: JSON.stringify({
       systemInstruction: {
@@ -139,10 +145,12 @@ export async function POST(request: NextRequest) {
 
   const fallback = buildLocalDraft(body);
   const prompt = buildPrompt(body);
+  const requestGeminiApiKey = userProvidedGeminiKey(body.geminiApiKey);
+  const geminiApiKey = requestGeminiApiKey || GEMINI_API_KEY;
 
   try {
-    if (GEMINI_API_KEY) {
-      const generated = finalizeAiMessage(await generateWithGemini(prompt), fallback);
+    if (geminiApiKey) {
+      const generated = finalizeAiMessage(await generateWithGemini(prompt, geminiApiKey), fallback);
       return NextResponse.json({
         message: generated.message,
         source: generated.usedFallback ? "local" : "gemini",

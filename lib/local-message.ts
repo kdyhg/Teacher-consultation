@@ -15,6 +15,7 @@ export type GenerateRequest = {
   mode: MessageMode;
   tone: Tone;
   includeScores: boolean;
+  geminiApiKey?: string;
   teacherName?: string;
   teacherObservation?: string;
   student?: StudentReport;
@@ -25,6 +26,7 @@ export type GenerateRequest = {
 export type CounselingRequest = {
   student?: StudentReport;
   teacherObservation?: string;
+  geminiApiKey?: string;
   classContext?: ClassContext;
 };
 

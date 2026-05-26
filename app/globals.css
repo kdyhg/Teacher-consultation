@@ -544,6 +544,24 @@ h3 {
   align-items: start;
 }
 
+.api-key-panel {
+  grid-column: 1 / -1;
+}
+
+.api-key-help {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.api-key-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+}
+
 .consult-grid .panel,
 .export-card {
   display: grid;
@@ -750,5 +768,9 @@ textarea {
   .subject-bar-row small,
   .subject-bar-row .bar-track {
     grid-column: 1 / -1;
+  }
+
+  .api-key-row {
+    grid-template-columns: 1fr;
   }
 }

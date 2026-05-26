@@ -31,7 +31,9 @@ npm run dev
 
 ## AI 생성 설정
 
-Gemini를 쓰려면 `.env.local`에 다음 값을 설정합니다.
+공유 사이트에서 각 사용자가 자신의 Gemini API 키를 쓰게 하려면 웹 화면의 **상담·문안 > 개인 Gemini API 키** 영역에 키를 입력하면 됩니다. 키는 생성 요청 때만 서버 API Route로 전달되며, "이 브라우저에 키 저장"을 켠 경우에만 해당 브라우저 localStorage에 저장됩니다.
+
+사이트 운영자 공용 키를 쓰려면 `.env.local` 또는 Vercel 환경 변수에 다음 값을 설정합니다.
 
 ```bash
 GEMINI_API_KEY=your-gemini-api-key

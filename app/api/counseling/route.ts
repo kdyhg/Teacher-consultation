@@ -42,6 +42,12 @@ function isCounselingRequest(value: unknown): value is CounselingRequest {
   return Boolean(body.student && typeof body.student === "object");
 }
 
+function userProvidedGeminiKey(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return trimmed.length >= 20 ? trimmed : "";
+}
+
 function extractGeminiText(data: GeminiResponse): string {
   return (
     data.candidates
@@ -122,14 +128,14 @@ function normalizeGuide(value: unknown, fallback: CounselingGuide): CounselingGu
   };
 }
 
-async function generateWithGemini(prompt: string): Promise<string> {
-  if (!GEMINI_API_KEY) throw new Error("Gemini API 키가 없습니다.");
+async function generateWithGemini(prompt: string, apiKey: string): Promise<string> {
+  if (!apiKey) throw new Error("Gemini API 키가 없습니다.");
 
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-goog-api-key": GEMINI_API_KEY,
+      "x-goog-api-key": apiKey,
     },
     body: JSON.stringify({
       systemInstruction: {
@@ -179,10 +185,12 @@ export async function POST(request: NextRequest) {
   const fallbackGuide = buildLocalCounselingGuide(body);
   const fallback = fallbackGuide ? counselingGuideToMemo(fallbackGuide, body.student?.name) : buildCounselingMemo(body.student ?? null, body.teacherObservation ?? "");
   const prompt = buildCounselingPrompt(body);
+  const requestGeminiApiKey = userProvidedGeminiKey(body.geminiApiKey);
+  const geminiApiKey = requestGeminiApiKey || GEMINI_API_KEY;
 
   try {
-    if (GEMINI_API_KEY) {
-      const generated = await generateWithGemini(prompt);
+    if (geminiApiKey) {
+      const generated = await generateWithGemini(prompt, geminiApiKey);
       const guide = fallbackGuide ? normalizeGuide(parseJsonObject(generated), fallbackGuide) : null;
       return NextResponse.json({
         memo: guide ? counselingGuideToMemo(guide, body.student?.name) : generated || fallback,
