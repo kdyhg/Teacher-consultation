@@ -42,6 +42,7 @@ import type { CounselingGuide, MessageMode, Tone } from "@/lib/local-message";
 
 type MessageSource = "idle" | "openai" | "gemini" | "local";
 type WorkspaceTab = "briefing" | "student" | "consulting" | "exports";
+type AnalysisSection = "subjects" | "grade-distribution" | "students";
 const GEMINI_KEY_STORAGE = "teacher-consultation-gemini-key";
 
 const toneOptions: Array<{ value: Tone; label: string }> = [
@@ -69,6 +70,11 @@ function scoreText(value: number | null | undefined): string {
 
 function gradeText(value: number | null | undefined): string {
   return value === null || value === undefined ? "-" : value.toFixed(2);
+}
+
+function gradePercent(value: number | null | undefined, maxGrade: number): number {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, ((value - 1) / Math.max(1, maxGrade - 1)) * 100));
 }
 
 function rankText(subject: SubjectScore): string {
@@ -210,6 +216,7 @@ export default function Home() {
   const [isParsing, setIsParsing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("briefing");
+  const [analysisSection, setAnalysisSection] = useState<AnalysisSection>("subjects");
   const [showRanks, setShowRanks] = useState(true);
   const [geminiApiKey, setGeminiApiKey] = useState(() =>
     typeof window === "undefined" ? "" : window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? "",
@@ -242,6 +249,13 @@ export default function Home() {
   const selectedObservation = selectedStudent ? observations[selectedStudent.id] ?? "" : "";
   const activeSource = counselingMemo ? counselingSource : messageSource;
   const activeGeminiApiKey = geminiApiKey.trim();
+  const sortedAnalysisStudents = useMemo(
+    () =>
+      analysis
+        ? [...analysis.students].sort((left, right) => (left.weightedGrade5 ?? 99) - (right.weightedGrade5 ?? 99))
+        : [],
+    [analysis],
+  );
 
   const parseUploadedFiles = useCallback(async (files: File[]) => {
     if (!files.length) return;
@@ -291,6 +305,7 @@ export default function Home() {
       setClassGrade(merged.reports[0]?.grade ?? "");
       setClassNumberInput(merged.reports[0]?.classNumber ?? "");
       setActiveTab("briefing");
+      setAnalysisSection("subjects");
     } catch (error) {
       setReports([]);
       setAnalysis(null);
@@ -556,74 +571,207 @@ export default function Home() {
                 </article>
               </div>
 
-              <section className="panel two-column">
-                <div>
-                  <div className="panel-title">
+              <section className="panel grade-analysis-panel">
+                <div className="panel-title split">
+                  <div>
                     <BarChart3 size={18} />
-                    <h2>5등급 분포</h2>
+                    <h2>성적 분석</h2>
                   </div>
-                  <div className="distribution-bars">
-                    {Object.entries(analysis.gradeDistribution).map(([grade, count]) => (
-                      <div className="dist-row" key={grade}>
-                        <span>{grade}등급</span>
-                        <div className="bar-track">
-                          <div style={{ width: `${analysis.studentCount ? Math.max(4, (count / analysis.studentCount) * 100) : 0}%` }} />
-                        </div>
-                        <strong>{count}</strong>
-                      </div>
-                    ))}
-                  </div>
+                  <span className="soft-pill">3개 섹션</span>
                 </div>
-                <div>
-                  <div className="panel-title">
-                    <Sparkles size={18} />
-                    <h2>9등급 추정 분포</h2>
-                  </div>
-                  <div className="nine-grid">
-                    {Object.entries(analysis.nineGradeDistribution).map(([grade, count]) => (
-                      <span key={grade} className={count ? "filled" : ""}>
-                        <em>{grade}</em>
-                        <strong>{count}</strong>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </section>
 
-              <section className="panel">
-                <div className="panel-title">
-                  <UsersRound size={18} />
-                  <h2>교과군 요약</h2>
+                <div className="analysis-section-tabs" role="tablist" aria-label="성적 분석 섹션">
+                  <button className={analysisSection === "subjects" ? "active" : ""} type="button" onClick={() => setAnalysisSection("subjects")}>
+                    <FileText size={18} />
+                    <span>과목별 분석</span>
+                  </button>
+                  <button className={analysisSection === "grade-distribution" ? "active" : ""} type="button" onClick={() => setAnalysisSection("grade-distribution")}>
+                    <BarChart3 size={18} />
+                    <span>평균등급 분포</span>
+                  </button>
+                  <button className={analysisSection === "students" ? "active" : ""} type="button" onClick={() => setAnalysisSection("students")}>
+                    <UsersRound size={18} />
+                    <span>학생별 분석</span>
+                  </button>
                 </div>
-                <div className="group-grid">
-                  {analysis.groups.map((group) => (
-                    <article className="group-card" key={group.group}>
-                      <span>{group.group}</span>
-                      <strong>{gradeText(group.averageGrade5)}</strong>
-                      <em>9등급 {gradeText(group.averageGrade9)} · {group.subjects.slice(0, 4).join(", ")}</em>
-                    </article>
-                  ))}
-                </div>
-              </section>
 
-              <section className="panel">
-                <div className="panel-title">
-                  <FileText size={18} />
-                  <h2>과목 흐름</h2>
-                </div>
-                <div className="subject-bars">
-                  {analysis.subjects.map((subject) => (
-                    <div className="subject-bar-row" key={`${subject.group}-${subject.subject}`}>
-                      <span title={subject.subject}>{subject.subject}</span>
-                      <small>{subject.group}</small>
-                      <div className="bar-track">
-                        <div style={{ width: `${Math.min(100, Math.max(5, ((subject.averageScore ?? 0) / 100) * 100))}%` }} />
+                {analysisSection === "subjects" && (
+                  <div className="analysis-section">
+                    <div className="section-heading">
+                      <div>
+                        <h3>과목별 분석</h3>
+                        <p>과목 평균, 평균 5등급, 점검 학생 수를 함께 보며 상담 우선순위를 잡습니다.</p>
                       </div>
-                      <strong>{scoreText(subject.averageScore)}</strong>
-                      <em>{gradeText(subject.averageGrade5)}</em>
                     </div>
-                  ))}
-                </div>
+
+                    <div className="subject-analysis-grid">
+                      {analysis.subjects.map((subject) => (
+                        <article className="subject-analysis-card" key={`${subject.group}-${subject.subject}`}>
+                          <div className="subject-analysis-head">
+                            <div>
+                              <strong title={subject.subject}>{subject.subject}</strong>
+                              <span>{subject.group} · {subject.count}명 · {subject.credits}학점</span>
+                            </div>
+                            <em>{gradeText(subject.averageGrade5)}</em>
+                          </div>
+                          <div className="subject-score-visual">
+                            <div className="bar-track">
+                              <div style={{ width: `${Math.min(100, Math.max(4, ((subject.averageScore ?? 0) / 100) * 100))}%` }} />
+                            </div>
+                            <span>{scoreText(subject.averageScore)}점</span>
+                          </div>
+                          <div className="subject-mini-stats">
+                            <span>과목평균 {scoreText(subject.subjectAverage)}</span>
+                            <span>9등급 {gradeText(subject.averageGrade9)}</span>
+                            <span>강점 {subject.strengthCount}</span>
+                            <span>점검 {subject.watchCount}</span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+
+                    <div className="group-grid">
+                      {analysis.groups.map((group) => (
+                        <article className="group-card" key={group.group}>
+                          <span>{group.group}</span>
+                          <strong>{gradeText(group.averageGrade5)}</strong>
+                          <em>9등급 {gradeText(group.averageGrade9)} · {group.subjects.slice(0, 4).join(", ")}</em>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {analysisSection === "grade-distribution" && (
+                  <div className="analysis-section">
+                    <div className="section-heading">
+                      <div>
+                        <h3>평균등급 분포</h3>
+                        <p>학생 평균등급의 밀집 구간과 상담이 필요한 학생군을 한눈에 확인합니다.</p>
+                      </div>
+                    </div>
+
+                    <div className="distribution-layout">
+                      <section>
+                        <h3>5등급 분포</h3>
+                        <div className="distribution-bars">
+                          {Object.entries(analysis.gradeDistribution).map(([grade, count]) => (
+                            <div className="dist-row" key={grade}>
+                              <span>{grade}등급</span>
+                              <div className="bar-track">
+                                <div style={{ width: `${analysis.studentCount ? Math.max(4, (count / analysis.studentCount) * 100) : 0}%` }} />
+                              </div>
+                              <strong>{count}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section>
+                        <h3>9등급 추정 분포</h3>
+                        <div className="nine-grid">
+                          {Object.entries(analysis.nineGradeDistribution).map(([grade, count]) => (
+                            <span key={grade} className={count ? "filled" : ""}>
+                              <em>{grade}</em>
+                              <strong>{count}</strong>
+                            </span>
+                          ))}
+                        </div>
+                      </section>
+                    </div>
+
+                    <div className="grade-ruler" aria-label="학생 평균등급 위치">
+                      <div className="ruler-track">
+                        {sortedAnalysisStudents.map((student, index) => (
+                          <button
+                            key={`${student.id}-${index}`}
+                            className={`grade-dot ${student.status}`}
+                            type="button"
+                            style={{ left: `${gradePercent(student.weightedGrade5, 5)}%` }}
+                            title={`${student.name}: 평균 5등급 ${gradeText(student.weightedGrade5)}, 추정 9등급 ${gradeText(student.weightedGrade9)}`}
+                            onClick={() => {
+                              const target = reports.find((report) => report.name === student.name && report.studentNumber === student.studentNumber);
+                              if (target) setSelectedId(target.id);
+                              setActiveTab("student");
+                            }}
+                          >
+                            <span>{index + 1}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="ruler-labels">
+                        <span>1등급</span>
+                        <span>2</span>
+                        <span>3</span>
+                        <span>4</span>
+                        <span>5등급</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {analysisSection === "students" && (
+                  <div className="analysis-section">
+                    <div className="section-heading">
+                      <div>
+                        <h3>학생별 분석</h3>
+                        <p>평균등급순으로 학생을 정렬해 강점·점검 상태와 상담용 핵심 지표를 확인합니다.</p>
+                      </div>
+                    </div>
+
+                    <div className="student-analysis-table-wrap">
+                      <table className={`student-analysis-table ${showRanks ? "" : "ranks-hidden"}`}>
+                        <thead>
+                          <tr>
+                            <th>학생</th>
+                            <th>평균점수</th>
+                            <th>평균 5등급</th>
+                            <th>추정 9등급</th>
+                            <th>과목 수</th>
+                            <th>상태</th>
+                            <th>주요 과목</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedAnalysisStudents.map((student) => {
+                            const target = reports.find((report) => report.name === student.name && report.studentNumber === student.studentNumber);
+                            const focus = target?.focusSubject?.subject ?? student.records.find((record) => record.grade5 !== null && record.grade5 >= 4)?.subject ?? "-";
+                            return (
+                              <tr key={student.id}>
+                                <td>
+                                  <button
+                                    className="student-link"
+                                    type="button"
+                                    onClick={() => {
+                                      if (target) setSelectedId(target.id);
+                                      setActiveTab("student");
+                                    }}
+                                  >
+                                    <strong>{student.name}</strong>
+                                    <span>{student.grade ?? "-"}학년 {student.classNumber ?? "-"}반 {student.studentNumber ?? "-"}번</span>
+                                  </button>
+                                </td>
+                                <td>{scoreText(student.averageScore)}</td>
+                                <td>
+                                  <div className="grade-cell-visual">
+                                    <span>{gradeText(student.weightedGrade5)}</span>
+                                    <div className="bar-track">
+                                      <div style={{ width: `${gradePercent(student.weightedGrade5, 5)}%` }} />
+                                    </div>
+                                  </div>
+                                </td>
+                                <td>{gradeText(student.weightedGrade9)}</td>
+                                <td>{student.records.length}</td>
+                                <td><span className={`status ${student.status}`}>{statusLabels[student.status]}</span></td>
+                                <td>{focus}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </section>
             </section>
           )}
