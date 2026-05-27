@@ -30,6 +30,7 @@ import {
   type ConsultationAnalysis,
   type SourceType,
 } from "@/lib/consultation-analysis";
+import { nineGradeRangeLabel } from "@/lib/grade-conversion";
 import {
   fiveGradeLabel,
   formatPercentile,
@@ -107,6 +108,10 @@ function gradeText(value: number | null | undefined): string {
   return value === null || value === undefined ? "-" : value.toFixed(2);
 }
 
+function nineGradeText(fiveGrade: number | null | undefined): string {
+  return nineGradeRangeLabel(fiveGrade);
+}
+
 function gradePercent(value: number | null | undefined, maxGrade: number): number {
   if (value === null || value === undefined || !Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, ((value - 1) / Math.max(1, maxGrade - 1)) * 100));
@@ -138,7 +143,7 @@ function buildCsv(analysis: ConsultationAnalysis, includePrivateInfo: boolean): 
   const header = [
     ...(includePrivateInfo ? ["학년", "반", "번호", "이름"] : ["익명ID"]),
     "평균5등급",
-    "추정9등급",
+    "9등급 기준",
     "교과군",
     "과목",
     "학점",
@@ -159,7 +164,7 @@ function buildCsv(analysis: ConsultationAnalysis, includePrivateInfo: boolean): 
         ? [student.grade ?? "", student.classNumber ?? "", student.studentNumber ?? "", student.name]
         : [`S${String(studentIndex + 1).padStart(3, "0")}`]),
       student.weightedGrade5 ?? "",
-      student.weightedGrade9 ?? "",
+      nineGradeText(student.weightedGrade5),
       record.group,
       record.subject,
       record.credits,
@@ -193,11 +198,11 @@ function buildStaticHtml(analysis: ConsultationAnalysis, includePrivateInfo: boo
       const label = includePrivateInfo
         ? `${student.grade ?? "-"}학년 ${student.classNumber ?? "-"}반 ${student.studentNumber ?? "-"}번 ${student.name}`
         : `학생 ${String(index + 1).padStart(3, "0")}`;
-      return `<tr><td>${htmlSafe(label)}</td><td>${gradeText(student.weightedGrade5)}</td><td>${gradeText(student.weightedGrade9)}</td><td>${scoreText(student.averageScore)}</td><td>${student.records.length}</td></tr>`;
+      return `<tr><td>${htmlSafe(label)}</td><td>${gradeText(student.weightedGrade5)}</td><td>${nineGradeText(student.weightedGrade5)}</td><td>${scoreText(student.averageScore)}</td><td>${student.records.length}</td></tr>`;
     })
     .join("");
   const subjectRows = analysis.subjects
-    .map((subject) => `<tr><td>${htmlSafe(subject.group)}</td><td>${htmlSafe(subject.subject)}</td><td>${subject.count}</td><td>${scoreText(subject.averageScore)}</td><td>${gradeText(subject.averageGrade5)}</td><td>${gradeText(subject.averageGrade9)}</td></tr>`)
+    .map((subject) => `<tr><td>${htmlSafe(subject.group)}</td><td>${htmlSafe(subject.subject)}</td><td>${subject.count}</td><td>${scoreText(subject.averageScore)}</td><td>${gradeText(subject.averageGrade5)}</td><td>${nineGradeText(subject.averageGrade5)}</td></tr>`)
     .join("");
 
   return `<!doctype html>
@@ -221,12 +226,12 @@ function buildStaticHtml(analysis: ConsultationAnalysis, includePrivateInfo: boo
     <div class="card">학생<strong>${analysis.studentCount}</strong></div>
     <div class="card">과목<strong>${analysis.subjectCount}</strong></div>
     <div class="card">평균 5등급<strong>${gradeText(analysis.classAverageGrade5)}</strong></div>
-    <div class="card">추정 9등급<strong>${gradeText(analysis.classAverageGrade9)}</strong></div>
+    <div class="card">9등급 기준<strong>${nineGradeText(analysis.classAverageGrade5)}</strong></div>
   </section>
   <h2>학생 요약</h2>
-  <table><thead><tr><th>학생</th><th>평균5등급</th><th>추정9등급</th><th>평균점수</th><th>과목수</th></tr></thead><tbody>${rows}</tbody></table>
+  <table><thead><tr><th>학생</th><th>평균5등급</th><th>9등급 기준</th><th>평균점수</th><th>과목수</th></tr></thead><tbody>${rows}</tbody></table>
   <h2>과목 요약</h2>
-  <table><thead><tr><th>교과군</th><th>과목</th><th>인원</th><th>평균점수</th><th>평균5등급</th><th>평균9등급</th></tr></thead><tbody>${subjectRows}</tbody></table>
+  <table><thead><tr><th>교과군</th><th>과목</th><th>인원</th><th>평균점수</th><th>평균5등급</th><th>9등급 기준</th></tr></thead><tbody>${subjectRows}</tbody></table>
 </body>
 </html>`;
 }
@@ -634,8 +639,8 @@ export default function Home() {
                   <strong>{gradeText(analysis.classAverageGrade5)}</strong>
                 </article>
                 <article className="accent">
-                  <span>추정 9등급</span>
-                  <strong>{gradeText(analysis.classAverageGrade9)}</strong>
+                  <span>9등급 기준</span>
+                  <strong>{nineGradeText(analysis.classAverageGrade5)}</strong>
                 </article>
                 <article>
                   <span>자료 유형</span>
@@ -694,7 +699,7 @@ export default function Home() {
                           </div>
                           <div className="subject-mini-stats">
                             <span>과목평균 {scoreText(subject.subjectAverage)}</span>
-                            <span>9등급 {gradeText(subject.averageGrade9)}</span>
+                            <span>9등급 {nineGradeText(subject.averageGrade5)}</span>
                             <span>강점 {subject.strengthCount}</span>
                             <span>점검 {subject.watchCount}</span>
                           </div>
@@ -707,7 +712,7 @@ export default function Home() {
                         <article className="group-card" key={group.group}>
                           <span>{group.group}</span>
                           <strong>{gradeText(group.averageGrade5)}</strong>
-                          <em>9등급 {gradeText(group.averageGrade9)} · {group.subjects.slice(0, 4).join(", ")}</em>
+                          <em>9등급 {nineGradeText(group.averageGrade5)} · {group.subjects.slice(0, 4).join(", ")}</em>
                         </article>
                       ))}
                     </div>
@@ -740,7 +745,7 @@ export default function Home() {
                       </section>
 
                       <section>
-                        <h3>9등급 추정 분포</h3>
+                        <h3>9등급 기준 분포</h3>
                         <div className="nine-grid">
                           {Object.entries(analysis.nineGradeDistribution).map(([grade, count]) => (
                             <span key={grade} className={count ? "filled" : ""}>
@@ -760,7 +765,7 @@ export default function Home() {
                             className={`grade-dot ${student.status}`}
                             type="button"
                             style={{ left: `${gradePercent(student.weightedGrade5, 5)}%` }}
-                            title={`${student.name}: 평균 5등급 ${gradeText(student.weightedGrade5)}, 추정 9등급 ${gradeText(student.weightedGrade9)}`}
+                            title={`${student.name}: 평균 5등급 ${gradeText(student.weightedGrade5)}, 9등급 기준 ${nineGradeText(student.weightedGrade5)}`}
                             onClick={() => {
                               const target = reports.find((report) => report.name === student.name && report.studentNumber === student.studentNumber);
                               if (target) setSelectedId(target.id);
@@ -798,7 +803,7 @@ export default function Home() {
                             <th>학생</th>
                             <th>평균점수</th>
                             <th>평균 5등급</th>
-                            <th>추정 9등급</th>
+                            <th>9등급 기준</th>
                             <th>과목 수</th>
                             <th>상태</th>
                             <th>주요 과목</th>
@@ -832,7 +837,7 @@ export default function Home() {
                                     </div>
                                   </div>
                                 </td>
-                                <td>{gradeText(student.weightedGrade9)}</td>
+                                <td>{nineGradeText(student.weightedGrade5)}</td>
                                 <td>{student.records.length}</td>
                                 <td><span className={`status ${student.status}`}>{statusLabels[student.status]}</span></td>
                                 <td>{focus}</td>
@@ -896,8 +901,8 @@ export default function Home() {
                     <strong>{gradeText(selectedAnalysisStudent?.weightedGrade5 ?? selectedStudent?.averageFiveGrade ?? null)}</strong>
                   </article>
                   <article>
-                    <span>9등급 추정</span>
-                    <strong>{gradeText(selectedAnalysisStudent?.weightedGrade9 ?? null)}</strong>
+                    <span>9등급 기준</span>
+                    <strong>{nineGradeText(selectedAnalysisStudent?.weightedGrade5 ?? selectedStudent?.averageFiveGrade ?? null)}</strong>
                   </article>
                   <article>
                     <span>점검 과목</span>

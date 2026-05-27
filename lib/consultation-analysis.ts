@@ -7,6 +7,7 @@ import {
   type SubjectScore,
   type SubjectStatus,
 } from "@/lib/grade-parser";
+import { nineGradeMidpointFromFive, nineGradeTargetFromFive } from "@/lib/grade-conversion";
 
 export type SourceType = "all-subjects" | "semester-summary" | "subject-list" | "notice" | "print-report";
 
@@ -104,18 +105,6 @@ const SUBJECT_GROUPS: Array<{ group: string; keywords: string[] }> = [
   { group: "생활교양", keywords: ["정보", "기술", "가정", "보건", "진로", "한문", "외국어"] },
 ];
 
-const GYEONGGI_REFERENCE = [
-  [1.0, 1.39],
-  [1.5, 2.31],
-  [2.0, 3.16],
-  [2.5, 3.95],
-  [3.0, 4.75],
-  [3.5, 5.47],
-  [4.0, 6.25],
-  [4.5, 6.94],
-  [5.0, 8.97],
-];
-
 function emptyDistribution(): GradeDistribution {
   return { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 }
@@ -209,24 +198,6 @@ function grade9FromPercentile(percentile: number | null): number | null {
   return 9;
 }
 
-function estimateNineGradeFromFiveAverage(grade5: number | null): number | null {
-  if (grade5 === null) return null;
-  if (grade5 <= GYEONGGI_REFERENCE[0][0]) return GYEONGGI_REFERENCE[0][1];
-  const last = GYEONGGI_REFERENCE.at(-1);
-  if (!last || grade5 >= last[0]) return last?.[1] ?? null;
-
-  for (let index = 1; index < GYEONGGI_REFERENCE.length; index += 1) {
-    const [leftFive, leftNine] = GYEONGGI_REFERENCE[index - 1];
-    const [rightFive, rightNine] = GYEONGGI_REFERENCE[index];
-    if (grade5 <= rightFive) {
-      const ratio = (grade5 - leftFive) / (rightFive - leftFive);
-      return Math.round((leftNine + (rightNine - leftNine) * ratio) * 100) / 100;
-    }
-  }
-
-  return null;
-}
-
 function statusForRecord(score: number | null, delta: number | null, grade5: number | null): SubjectStatus {
   if (score === null && grade5 === null) return "missing";
   if ((delta !== null && delta >= 8) || (grade5 !== null && grade5 <= 2)) return "strength";
@@ -318,7 +289,7 @@ function buildReportFromStudent(student: ConsultationStudent): StudentReport {
 function normalizeStudent(student: Omit<ConsultationStudent, "weightedGrade5" | "weightedGrade9" | "averageScore" | "averageDelta" | "status">): ConsultationStudent {
   const weightedGrade5 = weightedMean(student.records.map((record) => ({ value: record.grade5, weight: record.credits })));
   const exactNineGrade = weightedMean(student.records.map((record) => ({ value: record.grade9, weight: record.credits })));
-  const weightedGrade9 = exactNineGrade ?? estimateNineGradeFromFiveAverage(weightedGrade5);
+  const weightedGrade9 = exactNineGrade ?? nineGradeMidpointFromFive(weightedGrade5);
   const averageScore = mean(student.records.map((record) => record.score));
   const averageDelta = mean(student.records.map((record) => (
     record.score !== null && record.subjectAverage !== null ? record.score - record.subjectAverage : null
@@ -357,8 +328,9 @@ function analysisFromStudents(
       const grade = Math.min(5, Math.max(1, Math.round(student.weightedGrade5))) as FiveGrade;
       gradeDistribution[grade] += 1;
     }
-    if (student.weightedGrade9 !== null) {
-      const grade = Math.min(9, Math.max(1, Math.round(student.weightedGrade9)));
+    const convertedGrade = nineGradeTargetFromFive(student.weightedGrade5);
+    if (convertedGrade !== null || student.weightedGrade9 !== null) {
+      const grade = convertedGrade ?? Math.min(9, Math.max(1, Math.round(student.weightedGrade9 ?? 0)));
       nineGradeDistribution[grade] += 1;
     }
   }
@@ -374,6 +346,7 @@ function analysisFromStudents(
   const subjects = [...subjectEntries.entries()]
     .map(([, subjectRecords]) => {
       const sample = subjectRecords[0];
+      const averageGrade5 = mean(subjectRecords.map((record) => record.grade5));
       const deltas = subjectRecords.map((record) => (
         record.score !== null && record.subjectAverage !== null ? record.score - record.subjectAverage : null
       ));
@@ -384,8 +357,8 @@ function analysisFromStudents(
         count: subjectRecords.length,
         averageScore: mean(subjectRecords.map((record) => record.score)),
         subjectAverage: mean(subjectRecords.map((record) => record.subjectAverage)),
-        averageGrade5: mean(subjectRecords.map((record) => record.grade5)),
-        averageGrade9: mean(subjectRecords.map((record) => record.grade9)),
+        averageGrade5,
+        averageGrade9: nineGradeMidpointFromFive(averageGrade5),
         strengthCount: subjectRecords.filter((record, index) => statusForRecord(record.score, deltas[index] ?? null, record.grade5) === "strength").length,
         watchCount: subjectRecords.filter((record, index) => statusForRecord(record.score, deltas[index] ?? null, record.grade5) === "watch").length,
       };
@@ -399,14 +372,18 @@ function analysisFromStudents(
   }
 
   const groups = [...groupEntries.entries()]
-    .map(([group, groupRecords]) => ({
-      group,
-      count: groupRecords.length,
-      averageGrade5: mean(groupRecords.map((record) => record.grade5)),
-      averageGrade9: mean(groupRecords.map((record) => record.grade9)),
-      subjects: [...new Set(groupRecords.map((record) => record.subject))].sort((a, b) => a.localeCompare(b, "ko")),
-    }))
+    .map(([group, groupRecords]) => {
+      const averageGrade5 = mean(groupRecords.map((record) => record.grade5));
+      return {
+        group,
+        count: groupRecords.length,
+        averageGrade5,
+        averageGrade9: nineGradeMidpointFromFive(averageGrade5),
+        subjects: [...new Set(groupRecords.map((record) => record.subject))].sort((a, b) => a.localeCompare(b, "ko")),
+      };
+    })
     .sort((a, b) => a.group.localeCompare(b.group, "ko"));
+  const classAverageGrade5 = mean(students.map((student) => student.weightedGrade5));
 
   return {
     files,
@@ -418,8 +395,8 @@ function analysisFromStudents(
     studentCount: students.length,
     subjectCount: subjects.length,
     classAverageScore: mean(students.map((student) => student.averageScore)),
-    classAverageGrade5: mean(students.map((student) => student.weightedGrade5)),
-    classAverageGrade9: mean(students.map((student) => student.weightedGrade9)),
+    classAverageGrade5,
+    classAverageGrade9: nineGradeMidpointFromFive(classAverageGrade5),
     gradeDistribution,
     nineGradeDistribution,
     hasRankData: records.some((record) => record.rank !== null && record.participants !== null),
