@@ -192,6 +192,107 @@ h3 {
   font-size: 13px;
 }
 
+.upload-guide-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.source-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.source-guide-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 12px;
+}
+
+.guide-index {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.source-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.source-guide-head strong {
+  font-size: 14px;
+}
+
+.source-guide-head em,
+.detected-source-list em {
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.source-guide-card p {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.download-route {
+  border-left: 3px solid var(--primary);
+  padding-left: 8px;
+  font-weight: 800;
+}
+
+.xls-emphasis {
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.detected-source-list {
+  display: grid;
+  gap: 6px;
+}
+
+.detected-source-list > span {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.detected-source-list strong {
+  color: var(--text);
+}
+
 .drop-curtain {
   position: fixed;
   inset: 18px;
@@ -1020,7 +1121,8 @@ textarea {
   .student-workspace,
   .consult-grid,
   .export-grid,
-  .distribution-layout {
+  .distribution-layout,
+  .source-guide-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1070,7 +1172,8 @@ textarea {
   }
 
   .section-heading,
-  .subject-analysis-head {
+  .subject-analysis-head,
+  .source-guide-head {
     display: grid;
   }
 

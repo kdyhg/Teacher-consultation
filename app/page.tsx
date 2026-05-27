@@ -28,6 +28,7 @@ import {
   mergeConsultationWorkbooks,
   parseConsultationRows,
   type ConsultationAnalysis,
+  type SourceType,
 } from "@/lib/consultation-analysis";
 import {
   fiveGradeLabel,
@@ -51,11 +52,45 @@ const toneOptions: Array<{ value: Tone; label: string }> = [
   { value: "brief", label: "간결하게" },
 ];
 
-const sourceLabels = {
+const sourceLabels: Record<SourceType, string> = {
+  "all-subjects": "성적일람표 전과목",
+  "semester-summary": "학기말성적종합일람표",
+  "subject-list": "교과목별일람표",
   notice: "성적통지표",
-  "semester-summary": "학기말 종합일람표",
   "print-report": "인쇄용 성적표",
 };
+
+const sourceRoles: Record<SourceType, string> = {
+  "all-subjects": "담임교사용",
+  "semester-summary": "담임교사용",
+  "subject-list": "교과담당교사용",
+  notice: "담임교사용",
+  "print-report": "담임교사용",
+};
+
+const uploadSourceGuides: Array<{ type: SourceType; title: string; role: string; route: string; description: string }> = [
+  {
+    type: "all-subjects",
+    title: "성적일람표 전과목",
+    role: "담임교사 관점",
+    route: "나이스 > 학급담임 > 성적조회 > 학기말성적조회 > 성적일람표전과목 > 조회 > XLS data로 저장",
+    description: "한 반 학생의 전과목 성적 흐름을 묶어서 분석할 때 사용합니다.",
+  },
+  {
+    type: "semester-summary",
+    title: "학기말성적종합일람표",
+    role: "담임교사 관점",
+    route: "나이스 > 학급담임 > 성적조회 > 학기말성적조회 > 학기말성적조회일람표 > 조회 > XLS data로 저장",
+    description: "학기말 종합 결과를 학생별 상담 자료와 학급 분포로 정리할 때 사용합니다.",
+  },
+  {
+    type: "subject-list",
+    title: "교과목별일람표",
+    role: "교과담당교사 관점",
+    route: "나이스 > 교과담임 > 지필평가조회/통계 > 지필평가조회 > 교과목별일람표조회-전체학급 > 조회 > XLS data로 저장",
+    description: "특정 교과목을 맡은 교사가 반별 점수 분포와 학생별 위치를 볼 때 사용합니다.",
+  },
+];
 
 const statusLabels: Record<StudentReport["overallStatus"], string> = {
   growth: "강점",
@@ -474,8 +509,8 @@ export default function Home() {
       {isDragging && (
         <div className="drop-curtain" aria-hidden="true">
           <FileSpreadsheet size={44} />
-          <strong>성적 자료를 놓으면 상담 브리핑을 만듭니다</strong>
-          <span>성적통지표, 학기말 종합일람표, 인쇄용 성적표 파일을 함께 올릴 수 있습니다.</span>
+          <strong>나이스 XLS data 성적자료를 놓으면 자동으로 분류합니다</strong>
+          <span>성적일람표 전과목, 학기말성적종합일람표, 교과목별일람표를 지원합니다.</span>
         </div>
       )}
 
@@ -483,12 +518,12 @@ export default function Home() {
         <div>
           <p className="eyebrow">Teacher Consultation</p>
           <h1>담임 상담 워크벤치</h1>
-          <p className="hero-copy">성적 자료를 상담 흐름으로 재정리하고, 학생별 상담 질문과 가정 메시지를 함께 준비합니다.</p>
+          <p className="hero-copy">나이스에서 조회 후 XLS data로 저장한 성적자료를 자동 분류하고, 담임교사와 교과담당교사 관점에 맞춰 분석합니다.</p>
         </div>
         <div className="hero-actions">
           <label className="action-button primary">
             <Upload size={18} />
-            <span>자료 업로드</span>
+            <span>XLS DATA 업로드</span>
             <input type="file" accept=".xlsx,.xls,.xlsm" multiple onChange={handleFile} />
           </label>
           <button className="action-button" type="button" onClick={() => setShowRanks((value) => !value)} disabled={!analysis}>
@@ -502,17 +537,54 @@ export default function Home() {
         <div className="file-state">
           <FileSpreadsheet size={24} />
           <div>
-            <strong>{fileName || "나이스 XLS DATA 파일을 올려 주세요"}</strong>
+            <strong>{fileName || "나이스 XLS data 성적자료를 올려 주세요"}</strong>
             <span>
               {isParsing
                 ? "파일을 읽고 있습니다"
                 : analysis
                   ? `${analysis.studentCount}명 · ${analysis.subjectCount}개 과목 · ${analysis.files.length}개 파일`
-                  : "성적통지표, 학기말 종합일람표, 인쇄용 성적표를 지원합니다"}
+                  : "반드시 조회 후 XLS data로 저장한 파일을 첨부해 주세요"}
             </span>
           </div>
         </div>
         {isParsing ? <Loader2 className="spin" size={22} /> : <ShieldCheck size={22} />}
+      </section>
+
+      <section className="panel upload-guide-panel">
+        <div className="panel-title split">
+          <div>
+            <ClipboardList size={18} />
+            <h2>첨부 성적자료 분류</h2>
+          </div>
+          <span className="soft-pill">XLS data 저장 필수</span>
+        </div>
+        <div className="source-guide-grid">
+          {uploadSourceGuides.map((guide, index) => (
+            <article className="source-guide-card" key={guide.type}>
+              <span className="guide-index">{index + 1}</span>
+              <div>
+                <div className="source-guide-head">
+                  <strong>{guide.title}</strong>
+                  <em>{guide.role}</em>
+                </div>
+                <p>{guide.description}</p>
+                <p className="download-route">{guide.route}</p>
+                <span className="xls-emphasis">조회 후 반드시 XLS data로 저장한 파일을 첨부하세요.</span>
+              </div>
+            </article>
+          ))}
+        </div>
+        {analysis?.fileSummaries.length ? (
+          <div className="detected-source-list" aria-label="자동 판별 결과">
+            {analysis.fileSummaries.map((file) => (
+              <span key={`${file.sourceFile}-${file.sourceType}`}>
+                <strong>{sourceLabels[file.sourceType]}</strong>
+                <em>{sourceRoles[file.sourceType]}</em>
+                {file.sourceFile}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       {parseError && (
@@ -1090,8 +1162,8 @@ export default function Home() {
       ) : (
         <section className="empty-state">
           <FileSpreadsheet size={44} />
-          <h2>여러 성적 자료를 한 번에 올려 상담용으로 정리하세요</h2>
-          <p>성적통지표 기반 메시지 생성 기능과 학기말 종합 분석 기능을 하나의 담임 상담 흐름으로 합쳤습니다.</p>
+          <h2>3가지 나이스 XLS data 성적자료를 자동 분류합니다</h2>
+          <p>성적일람표 전과목과 학기말성적종합일람표는 담임교사용 분석으로, 교과목별일람표는 교과담당교사용 분석으로 정리합니다.</p>
         </section>
       )}
     </main>
