@@ -1,4 +1,4 @@
-export type NineGradeRange = {
+type NineGradeRange = {
   min: number;
   max: number;
   targetGrade: number;
@@ -415,21 +415,16 @@ function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-export function formatNineGradeValue(value: number): string {
+function formatNineGradeValue(value: number): string {
   return round2(value).toFixed(2);
 }
 
-export function convertFiveToNineRange(fiveGrade: number | null | undefined): NineGradeRange | null {
+function convertFiveToNineRange(fiveGrade: number | null | undefined): NineGradeRange | null {
   if (fiveGrade === null || fiveGrade === undefined || !Number.isFinite(fiveGrade)) return null;
   const sourceGrade = Math.min(LAST_SOURCE_GRADE, Math.max(FIRST_SOURCE_GRADE, Math.round(fiveGrade * 100)));
   const rule = GRADE_5_TO_9_RANGES[sourceGrade - FIRST_SOURCE_GRADE];
   if (!rule) return null;
   return { min: round2(rule[0]), max: round2(rule[1]), targetGrade: rule[2] };
-}
-
-export function nineGradeMidpointFromFive(fiveGrade: number | null | undefined): number | null {
-  const range = convertFiveToNineRange(fiveGrade);
-  return range ? round2((range.min + range.max) / 2) : null;
 }
 
 export function nineGradeTargetFromFive(fiveGrade: number | null | undefined): number | null {

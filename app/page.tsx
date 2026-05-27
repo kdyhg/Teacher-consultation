@@ -54,41 +54,27 @@ const toneOptions: Array<{ value: Tone; label: string }> = [
   { value: "brief", label: "간결하게" },
 ];
 
-const sourceLabels: Record<SourceType, string> = {
-  "all-subjects": "성적일람표 전과목",
-  "semester-summary": "학기말성적종합일람표",
-  "subject-list": "교과목별일람표",
-  notice: "성적통지표",
-  "print-report": "인쇄용 성적표",
+const sourceMetadata: Record<SourceType, { label: string; role: string }> = {
+  "all-subjects": { label: "성적일람표 전과목", role: "담임교사용" },
+  "semester-summary": { label: "학기말성적종합일람표", role: "담임교사용" },
+  "subject-list": { label: "교과목별일람표", role: "교과담당교사용" },
+  notice: { label: "성적통지표", role: "담임교사용" },
+  "print-report": { label: "인쇄용 성적표", role: "담임교사용" },
 };
 
-const sourceRoles: Record<SourceType, string> = {
-  "all-subjects": "담임교사용",
-  "semester-summary": "담임교사용",
-  "subject-list": "교과담당교사용",
-  notice: "담임교사용",
-  "print-report": "담임교사용",
-};
-
-const uploadSourceGuides: Array<{ type: SourceType; title: string; role: string; route: string; description: string }> = [
+const uploadSourceGuides: Array<{ type: SourceType; route: string; description: string }> = [
   {
     type: "all-subjects",
-    title: "성적일람표 전과목",
-    role: "담임교사 관점",
     route: "나이스 > 학급담임 > 성적조회 > 학기말성적조회 > 성적일람표전과목 > 조회 > XLS data로 저장",
     description: "한 반 학생의 전과목 성적 흐름을 묶어서 분석할 때 사용합니다.",
   },
   {
     type: "semester-summary",
-    title: "학기말성적종합일람표",
-    role: "담임교사 관점",
     route: "나이스 > 학급담임 > 성적조회 > 학기말성적조회 > 학기말성적조회일람표 > 조회 > XLS data로 저장",
     description: "학기말 종합 결과를 학생별 상담 자료와 학급 분포로 정리할 때 사용합니다.",
   },
   {
     type: "subject-list",
-    title: "교과목별일람표",
-    role: "교과담당교사 관점",
     route: "나이스 > 교과담임 > 지필평가조회/통계 > 지필평가조회 > 교과목별일람표조회-전체학급 > 조회 > XLS data로 저장",
     description: "특정 교과목을 맡은 교사가 반별 점수 분포와 학생별 위치를 볼 때 사용합니다.",
   },
@@ -571,8 +557,8 @@ export default function Home() {
               <span className="guide-index">{index + 1}</span>
               <div>
                 <div className="source-guide-head">
-                  <strong>{guide.title}</strong>
-                  <em>{guide.role}</em>
+                  <strong>{sourceMetadata[guide.type].label}</strong>
+                  <em>{sourceMetadata[guide.type].role}</em>
                 </div>
                 <p>{guide.description}</p>
                 <p className="download-route">{guide.route}</p>
@@ -586,8 +572,8 @@ export default function Home() {
           <div className="detected-source-list" aria-label="자동 판별 결과">
             {analysis.fileSummaries.map((file) => (
               <span key={`${file.sourceFile}-${file.sourceType}`}>
-                <strong>{sourceLabels[file.sourceType]}</strong>
-                <em>{sourceRoles[file.sourceType]}</em>
+                <strong>{sourceMetadata[file.sourceType].label}</strong>
+                <em>{sourceMetadata[file.sourceType].role}</em>
                 {file.sourceFile}
               </span>
             ))}
@@ -647,7 +633,7 @@ export default function Home() {
                 </article>
                 <article>
                   <span>자료 유형</span>
-                  <strong>{analysis.sourceTypes.map((type) => sourceLabels[type]).join(" · ")}</strong>
+                  <strong>{analysis.sourceTypes.map((type) => sourceMetadata[type].label).join(" · ")}</strong>
                 </article>
               </div>
 

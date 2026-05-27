@@ -7,7 +7,7 @@ import {
   type SubjectScore,
   type SubjectStatus,
 } from "@/lib/grade-parser";
-import { nineGradeMidpointFromFive, nineGradeTargetFromFive } from "@/lib/grade-conversion";
+import { nineGradeTargetFromFive } from "@/lib/grade-conversion";
 
 export type SourceType = "all-subjects" | "semester-summary" | "subject-list" | "notice" | "print-report";
 
@@ -36,7 +36,6 @@ export type ConsultationStudent = {
   sourceFiles: string[];
   records: ConsultationSubjectRecord[];
   weightedGrade5: number | null;
-  weightedGrade9: number | null;
   averageScore: number | null;
   averageDelta: number | null;
   status: StudentReport["overallStatus"];
@@ -50,7 +49,6 @@ export type SubjectBrief = {
   averageScore: number | null;
   subjectAverage: number | null;
   averageGrade5: number | null;
-  averageGrade9: number | null;
   strengthCount: number;
   watchCount: number;
 };
@@ -59,7 +57,6 @@ export type GroupBrief = {
   group: string;
   count: number;
   averageGrade5: number | null;
-  averageGrade9: number | null;
   subjects: string[];
 };
 
@@ -74,12 +71,13 @@ export type ConsultationAnalysis = {
   subjectCount: number;
   classAverageScore: number | null;
   classAverageGrade5: number | null;
-  classAverageGrade9: number | null;
   gradeDistribution: GradeDistribution;
   nineGradeDistribution: Record<number, number>;
   hasRankData: boolean;
   warnings: string[];
 };
+
+type RawConsultationStudent = Omit<ConsultationStudent, "weightedGrade5" | "averageScore" | "averageDelta" | "status">;
 
 export type ParsedWorkbook = {
   sourceFile: string;
@@ -286,10 +284,8 @@ function buildReportFromStudent(student: ConsultationStudent): StudentReport {
   };
 }
 
-function normalizeStudent(student: Omit<ConsultationStudent, "weightedGrade5" | "weightedGrade9" | "averageScore" | "averageDelta" | "status">): ConsultationStudent {
+function normalizeStudent(student: RawConsultationStudent): ConsultationStudent {
   const weightedGrade5 = weightedMean(student.records.map((record) => ({ value: record.grade5, weight: record.credits })));
-  const exactNineGrade = weightedMean(student.records.map((record) => ({ value: record.grade9, weight: record.credits })));
-  const weightedGrade9 = exactNineGrade ?? nineGradeMidpointFromFive(weightedGrade5);
   const averageScore = mean(student.records.map((record) => record.score));
   const averageDelta = mean(student.records.map((record) => (
     record.score !== null && record.subjectAverage !== null ? record.score - record.subjectAverage : null
@@ -297,7 +293,6 @@ function normalizeStudent(student: Omit<ConsultationStudent, "weightedGrade5" | 
   const report = buildReportFromStudent({
     ...student,
     weightedGrade5,
-    weightedGrade9,
     averageScore,
     averageDelta,
     status: "steady",
@@ -306,7 +301,6 @@ function normalizeStudent(student: Omit<ConsultationStudent, "weightedGrade5" | 
   return {
     ...student,
     weightedGrade5,
-    weightedGrade9,
     averageScore,
     averageDelta,
     status: report.overallStatus,
@@ -328,9 +322,10 @@ function analysisFromStudents(
       const grade = Math.min(5, Math.max(1, Math.round(student.weightedGrade5))) as FiveGrade;
       gradeDistribution[grade] += 1;
     }
+    const exactNineGrade = weightedMean(student.records.map((record) => ({ value: record.grade9, weight: record.credits })));
     const convertedGrade = nineGradeTargetFromFive(student.weightedGrade5);
-    if (convertedGrade !== null || student.weightedGrade9 !== null) {
-      const grade = convertedGrade ?? Math.min(9, Math.max(1, Math.round(student.weightedGrade9 ?? 0)));
+    if (convertedGrade !== null || exactNineGrade !== null) {
+      const grade = convertedGrade ?? Math.min(9, Math.max(1, Math.round(exactNineGrade ?? 0)));
       nineGradeDistribution[grade] += 1;
     }
   }
@@ -358,7 +353,6 @@ function analysisFromStudents(
         averageScore: mean(subjectRecords.map((record) => record.score)),
         subjectAverage: mean(subjectRecords.map((record) => record.subjectAverage)),
         averageGrade5,
-        averageGrade9: nineGradeMidpointFromFive(averageGrade5),
         strengthCount: subjectRecords.filter((record, index) => statusForRecord(record.score, deltas[index] ?? null, record.grade5) === "strength").length,
         watchCount: subjectRecords.filter((record, index) => statusForRecord(record.score, deltas[index] ?? null, record.grade5) === "watch").length,
       };
@@ -378,7 +372,6 @@ function analysisFromStudents(
         group,
         count: groupRecords.length,
         averageGrade5,
-        averageGrade9: nineGradeMidpointFromFive(averageGrade5),
         subjects: [...new Set(groupRecords.map((record) => record.subject))].sort((a, b) => a.localeCompare(b, "ko")),
       };
     })
@@ -396,7 +389,6 @@ function analysisFromStudents(
     subjectCount: subjects.length,
     classAverageScore: mean(students.map((student) => student.averageScore)),
     classAverageGrade5,
-    classAverageGrade9: nineGradeMidpointFromFive(classAverageGrade5),
     gradeDistribution,
     nineGradeDistribution,
     hasRankData: records.some((record) => record.rank !== null && record.participants !== null),
@@ -515,7 +507,7 @@ function findHeaderColumn(header: unknown[], start: number, end: number, keyword
   return null;
 }
 
-function fillSubjectAverages(students: Array<Omit<ConsultationStudent, "weightedGrade5" | "weightedGrade9" | "averageScore" | "averageDelta" | "status">>) {
+function fillSubjectAverages(students: RawConsultationStudent[]) {
   const grouped = new Map<string, ConsultationSubjectRecord[]>();
   for (const student of students) {
     for (const record of student.records) {
@@ -577,7 +569,7 @@ function findAllSubjectSections(rows: unknown[][]) {
 function parseAllSubjectsReport(rows: unknown[][], sourceFile: string): ConsultationStudent[] {
   const { grade, classNumber } = parseMetaFromInfo(rowText(rows[2]));
   const sections = findAllSubjectSections(rows);
-  const students = new Map<string, Omit<ConsultationStudent, "weightedGrade5" | "weightedGrade9" | "averageScore" | "averageDelta" | "status">>();
+  const students = new Map<string, RawConsultationStudent>();
 
   sections.forEach((section, sectionIndex) => {
     const sectionEnd = sections[sectionIndex + 1]?.subjectRowIndex ?? rows.length;
@@ -733,7 +725,7 @@ function parseSubjectList(rows: unknown[][], sourceFile: string): ConsultationSt
     .map((row) => ({ row, studentNumber: parseNumber(row[0]) }))
     .filter((item): item is { row: unknown[]; studentNumber: number } => item.studentNumber !== null);
   const averageRow = rows.find((row) => cellText(row[0]).replace(/\s+/g, "") === "평균");
-  const students: Array<Omit<ConsultationStudent, "weightedGrade5" | "weightedGrade9" | "averageScore" | "averageDelta" | "status">> = [];
+  const students: RawConsultationStudent[] = [];
 
   for (const column of classColumns) {
     const classNumber = String(column.classNumber);
@@ -822,7 +814,7 @@ function read(row: unknown[], map: ColumnMap, field: keyof ColumnMap): unknown {
 function parsePrintReport(rows: unknown[][], sourceFile: string): ConsultationStudent[] {
   const { grade, classNumber } = parseMetaFromInfo(rowText(rows[2]));
   const map = buildPrintColumnMap(rows[3] ?? []);
-  const students = new Map<string, Omit<ConsultationStudent, "weightedGrade5" | "weightedGrade9" | "averageScore" | "averageDelta" | "status">>();
+  const students = new Map<string, RawConsultationStudent>();
 
   let currentNumber: string | null = null;
   let currentName: string | null = null;
@@ -953,7 +945,7 @@ function isSyntheticSubjectListName(name: string): boolean {
 }
 
 function mergeStudents(workbooks: ParsedWorkbook[]): ConsultationStudent[] {
-  const merged = new Map<string, Omit<ConsultationStudent, "weightedGrade5" | "weightedGrade9" | "averageScore" | "averageDelta" | "status">>();
+  const merged = new Map<string, RawConsultationStudent>();
 
   for (const workbook of workbooks) {
     for (const student of workbook.analysis.students) {
