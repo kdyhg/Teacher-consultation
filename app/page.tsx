@@ -46,6 +46,7 @@ type MessageSource = "idle" | "openai" | "gemini" | "local";
 type WorkspaceTab = "briefing" | "student" | "consulting" | "exports";
 type AnalysisSection = "subjects" | "grade-distribution" | "students";
 const GEMINI_KEY_STORAGE = "teacher-consultation-gemini-key";
+const NINE_GRADE_SOURCE_NOTE = "9등급 변환은 부산광역시교육청학력개발원에서 개발한 내신변환서비스를 이용했습니다.";
 
 const toneOptions: Array<{ value: Tone; label: string }> = [
   { value: "warm", label: "따뜻하게" },
@@ -213,7 +214,7 @@ function buildStaticHtml(analysis: ConsultationAnalysis, includePrivateInfo: boo
   <style>
     body{font-family:Arial,"Malgun Gothic",sans-serif;margin:28px;color:#1f2933;background:#f6f7f4}
     h1{font-size:26px;margin:0 0 8px} h2{font-size:18px;margin:26px 0 10px}
-    .meta{color:#5f6b76;margin-bottom:18px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    .meta{color:#5f6b76;margin-bottom:10px}.conversion-note{color:#0b5f59;font-size:13px;font-weight:700;margin:0 0 18px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
     .card{background:white;border:1px solid #d8ded8;border-radius:8px;padding:14px}.card strong{display:block;font-size:24px;margin-top:5px}
     table{width:100%;border-collapse:collapse;background:white;border:1px solid #d8ded8} th,td{padding:9px;border-bottom:1px solid #e7ebe7;text-align:left;font-size:13px}
     th{background:#eef3ef;color:#415047}
@@ -222,6 +223,7 @@ function buildStaticHtml(analysis: ConsultationAnalysis, includePrivateInfo: boo
 <body>
   <h1>담임 상담 성적 브리핑</h1>
   <p class="meta">생성 시각: ${new Date().toLocaleString("ko-KR")} · 파일 ${analysis.files.length}개 · ${includePrivateInfo ? "개인정보 포함" : "익명화"}</p>
+  <p class="conversion-note">${htmlSafe(NINE_GRADE_SOURCE_NOTE)}</p>
   <section class="cards">
     <div class="card">학생<strong>${analysis.studentCount}</strong></div>
     <div class="card">과목<strong>${analysis.subjectCount}</strong></div>
@@ -579,6 +581,7 @@ export default function Home() {
             </article>
           ))}
         </div>
+        <p className="conversion-source-note">{NINE_GRADE_SOURCE_NOTE}</p>
         {analysis?.fileSummaries.length ? (
           <div className="detected-source-list" aria-label="자동 판별 결과">
             {analysis.fileSummaries.map((file) => (

@@ -270,6 +270,18 @@ h3 {
   font-weight: 900;
 }
 
+.conversion-source-note {
+  margin: 0;
+  border: 1px solid #afdcd6;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
 .detected-source-list {
   display: grid;
   gap: 6px;
