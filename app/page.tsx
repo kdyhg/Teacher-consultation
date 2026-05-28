@@ -914,8 +914,8 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedStudent?.subjects.map((subject) => (
-                        <tr key={`${selectedStudent.id}-${subject.subject}-${subject.examName}`}>
+                      {selectedStudent?.subjects.map((subject, subjectIndex) => (
+                        <tr key={`${selectedStudent.id}-${subject.subject}-${subject.examName}-${subjectIndex}`}>
                           <td>{subject.subject}</td>
                           <td>{scoreText(subject.value)}</td>
                           <td>{scoreText(subject.subjectAverage)}</td>

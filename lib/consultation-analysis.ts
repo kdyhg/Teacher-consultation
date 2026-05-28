@@ -529,23 +529,31 @@ type AllSubjectColumn = {
   subject: string;
   credits: number;
   scoreColumn: number;
-  rankColumn: number | null;
-  participantsColumn: number | null;
+  rankColumn: number;
+  participantsColumn: number;
 };
 
 function parseAllSubjectColumns(subjectRow: unknown[], headerRow: unknown[]): AllSubjectColumn[] {
   const starts = findSubjectCells(subjectRow);
-  return starts.map((subject, index) => {
-    const nextStart = starts[index + 1]?.columnIndex ?? subject.columnIndex + 6;
-    const end = Math.min(headerRow.length, nextStart);
-    return {
-      subject: subject.subject,
-      credits: subject.credits || 1,
-      scoreColumn: findHeaderColumn(headerRow, subject.columnIndex, end, ["원점수"]) ?? findHeaderColumn(headerRow, subject.columnIndex, end, ["합계"]) ?? subject.columnIndex,
-      rankColumn: findHeaderColumn(headerRow, subject.columnIndex, end, ["석차"]),
-      participantsColumn: findHeaderColumn(headerRow, subject.columnIndex, end, ["수강자수"]),
-    };
-  });
+  return starts
+    .map((subject, index) => {
+      const nextStart = starts[index + 1]?.columnIndex ?? subject.columnIndex + 6;
+      const end = Math.min(headerRow.length, nextStart);
+      const scoreColumn = findHeaderColumn(headerRow, subject.columnIndex, end, ["원점수"]);
+      const rankColumn = findHeaderColumn(headerRow, subject.columnIndex, end, ["석차"]);
+      const participantsColumn = findHeaderColumn(headerRow, subject.columnIndex, end, ["수강자수"]);
+
+      if (scoreColumn === null || rankColumn === null || participantsColumn === null) return null;
+
+      return {
+        subject: subject.subject,
+        credits: subject.credits || 1,
+        scoreColumn,
+        rankColumn,
+        participantsColumn,
+      };
+    })
+    .filter((subject): subject is AllSubjectColumn => subject !== null);
 }
 
 function findAllSubjectSections(rows: unknown[][]) {
@@ -596,9 +604,9 @@ function parseAllSubjectsReport(rows: unknown[][], sourceFile: string): Consulta
       if (!target) continue;
       for (const subject of section.columns) {
         const score = parseScore(row[subject.scoreColumn]);
-        const rank = subject.rankColumn === null ? { rank: null, label: null, tieCount: null } : parseRank(row[subject.rankColumn]);
-        const participants = subject.participantsColumn === null ? null : parseNumber(row[subject.participantsColumn]);
-        if (score === null && rank.rank === null && participants === null) continue;
+        const rank = parseRank(row[subject.rankColumn]);
+        const participants = parseNumber(row[subject.participantsColumn]);
+        if (score === null || rank.rank === null || participants === null) continue;
         const percentile = rank.rank !== null && participants ? Math.round(((rank.rank / participants) * 100) * 10) / 10 : null;
         target.records.push({
           sourceFile,
