@@ -31,7 +31,7 @@ npm run dev
 
 ## AI 생성 설정
 
-공유 사이트에서 각 사용자가 자신의 Gemini API 키를 쓰게 하려면 웹 화면의 **상담·문안 > 개인 Gemini API 키** 영역에 키를 입력하면 됩니다. 키는 생성 요청 때만 서버 API Route로 전달되며, "이 브라우저에 키 저장"을 켠 경우에만 해당 브라우저 localStorage에 저장됩니다.
+공유 사이트에서 각 사용자가 자신의 AI API 키를 쓰게 하려면 웹 화면의 **상담·문안 > 개인 AI API 설정** 영역에서 Gemini, OpenAI/ChatGPT, OpenRouter, OpenAI 호환 API 중 하나를 선택하고 키를 입력하면 됩니다. 키는 생성 요청 때만 서버 API Route로 전달되며, "이 브라우저에 제공자 설정과 키 저장"을 켠 경우에만 해당 브라우저 localStorage에 저장됩니다.
 
 사이트 운영자 공용 키를 쓰려면 `.env.local` 또는 Vercel 환경 변수에 다음 값을 설정합니다.
 
@@ -40,11 +40,18 @@ GEMINI_API_KEY=your-gemini-api-key
 GEMINI_MODEL=gemini-3.5-flash
 ```
 
-OpenAI를 보조 공급자로 쓰려면 다음 값도 사용할 수 있습니다.
+OpenAI/ChatGPT, OpenRouter, OpenAI 호환 API를 공용 공급자로 쓰려면 다음 값도 사용할 수 있습니다.
 
 ```bash
 OPENAI_API_KEY=sk-your-key
 OPENAI_MODEL=gpt-5.4-mini
+
+OPENROUTER_API_KEY=your-openrouter-key
+OPENROUTER_MODEL=openai/gpt-4o-mini
+
+OPENAI_COMPATIBLE_API_KEY=your-compatible-api-key
+OPENAI_COMPATIBLE_BASE_URL=https://api.example.com/v1
+OPENAI_COMPATIBLE_MODEL=your-model-name
 ```
 
 ## 주의

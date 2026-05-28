@@ -30,6 +30,13 @@ import {
   type ConsultationAnalysis,
   type SourceType,
 } from "@/lib/consultation-analysis";
+import {
+  AI_PROVIDER_OPTIONS,
+  aiProviderLabel,
+  isAiProvider,
+  type AiProvider,
+  type AiSource,
+} from "@/lib/ai-types";
 import { nineGradeRangeLabel } from "@/lib/grade-conversion";
 import {
   fiveGradeLabel,
@@ -42,11 +49,45 @@ import {
 } from "@/lib/grade-parser";
 import type { CounselingGuide, MessageMode, Tone } from "@/lib/local-message";
 
-type MessageSource = "idle" | "openai" | "gemini" | "local";
+type MessageSource = "idle" | AiSource;
 type WorkspaceTab = "briefing" | "student" | "consulting" | "exports";
 type AnalysisSection = "subjects" | "grade-distribution" | "students";
 const GEMINI_KEY_STORAGE = "teacher-consultation-gemini-key";
+const AI_SETTINGS_STORAGE = "teacher-consultation-ai-settings";
 const NINE_GRADE_SOURCE_NOTE = "9등급 변환은 부산광역시교육청학력개발원에서 개발한 내신변환서비스를 이용했습니다.";
+
+type StoredAiSettings = {
+  provider?: AiProvider;
+  apiKeys?: Partial<Record<AiProvider, string>>;
+  models?: Partial<Record<AiProvider, string>>;
+  compatibleBaseUrl?: string;
+};
+
+function readStoredAiSettings(): StoredAiSettings | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(AI_SETTINGS_STORAGE);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as StoredAiSettings;
+      return {
+        provider: isAiProvider(parsed.provider) ? parsed.provider : "gemini",
+        apiKeys: parsed.apiKeys ?? {},
+        models: parsed.models ?? {},
+        compatibleBaseUrl: parsed.compatibleBaseUrl ?? "",
+      };
+    } catch {
+      window.localStorage.removeItem(AI_SETTINGS_STORAGE);
+    }
+  }
+
+  const legacyGeminiKey = window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? "";
+  return legacyGeminiKey ? { provider: "gemini", apiKeys: { gemini: legacyGeminiKey }, models: {}, compatibleBaseUrl: "" } : null;
+}
+
+function storeAiSettings(settings: StoredAiSettings) {
+  window.localStorage.setItem(AI_SETTINGS_STORAGE, JSON.stringify(settings));
+  window.localStorage.removeItem(GEMINI_KEY_STORAGE);
+}
 
 const toneOptions: Array<{ value: Tone; label: string }> = [
   { value: "warm", label: "따뜻하게" },
@@ -246,13 +287,12 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("briefing");
   const [analysisSection, setAnalysisSection] = useState<AnalysisSection>("subjects");
   const [showRanks, setShowRanks] = useState(true);
-  const [geminiApiKey, setGeminiApiKey] = useState(() =>
-    typeof window === "undefined" ? "" : window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? "",
-  );
-  const [rememberGeminiKey, setRememberGeminiKey] = useState(() =>
-    typeof window === "undefined" ? false : Boolean(window.localStorage.getItem(GEMINI_KEY_STORAGE)),
-  );
-  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [aiProvider, setAiProvider] = useState<AiProvider>(() => readStoredAiSettings()?.provider ?? "gemini");
+  const [apiKeys, setApiKeys] = useState<Partial<Record<AiProvider, string>>>(() => readStoredAiSettings()?.apiKeys ?? {});
+  const [aiModels, setAiModels] = useState<Partial<Record<AiProvider, string>>>(() => readStoredAiSettings()?.models ?? {});
+  const [compatibleBaseUrl, setCompatibleBaseUrl] = useState(() => readStoredAiSettings()?.compatibleBaseUrl ?? "");
+  const [rememberApiSettings, setRememberApiSettings] = useState(() => Boolean(readStoredAiSettings()));
+  const [showApiKey, setShowApiKey] = useState(false);
   const [includePrivateCsv, setIncludePrivateCsv] = useState(false);
   const [includePrivateHtml, setIncludePrivateHtml] = useState(false);
   const [mode, setMode] = useState<MessageMode>("individual");
@@ -276,7 +316,10 @@ export default function Home() {
   const selectedAnalysisStudent = analysis?.students.find((student) => student.id === selectedStudent?.id || student.name === selectedStudent?.name) ?? analysis?.students[0] ?? null;
   const selectedObservation = selectedStudent ? observations[selectedStudent.id] ?? "" : "";
   const activeSource = counselingMemo ? counselingSource : messageSource;
-  const activeGeminiApiKey = geminiApiKey.trim();
+  const selectedAiOption = AI_PROVIDER_OPTIONS.find((option) => option.value === aiProvider) ?? AI_PROVIDER_OPTIONS[0];
+  const activeApiKey = (apiKeys[aiProvider] ?? "").trim();
+  const activeAiModel = (aiModels[aiProvider] ?? "").trim();
+  const activeCompatibleBaseUrl = compatibleBaseUrl.trim();
   const sortedAnalysisStudents = useMemo(
     () =>
       analysis
@@ -347,12 +390,18 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (rememberGeminiKey && activeGeminiApiKey) {
-      window.localStorage.setItem(GEMINI_KEY_STORAGE, activeGeminiApiKey);
+    if (rememberApiSettings) {
+      storeAiSettings({
+        provider: aiProvider,
+        apiKeys,
+        models: aiModels,
+        compatibleBaseUrl,
+      });
       return;
     }
+    window.localStorage.removeItem(AI_SETTINGS_STORAGE);
     window.localStorage.removeItem(GEMINI_KEY_STORAGE);
-  }, [activeGeminiApiKey, rememberGeminiKey]);
+  }, [aiProvider, apiKeys, aiModels, compatibleBaseUrl, rememberApiSettings]);
 
   useEffect(() => {
     function handleDragOver(event: DragEvent) {
@@ -419,7 +468,10 @@ export default function Home() {
           mode,
           tone,
           includeScores,
-          geminiApiKey: activeGeminiApiKey || undefined,
+          aiProvider,
+          apiKey: activeApiKey || undefined,
+          model: activeAiModel || undefined,
+          baseUrl: aiProvider === "compatible" ? activeCompatibleBaseUrl || undefined : undefined,
           teacherName,
           teacherObservation: mode === "individual" ? selectedObservation : undefined,
           student: mode === "individual" ? selectedStudent : undefined,
@@ -460,7 +512,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           teacherObservation: selectedObservation,
-          geminiApiKey: activeGeminiApiKey || undefined,
+          aiProvider,
+          apiKey: activeApiKey || undefined,
+          model: activeAiModel || undefined,
+          baseUrl: aiProvider === "compatible" ? activeCompatibleBaseUrl || undefined : undefined,
           student: selectedStudent,
           classContext: {
             year: reports[0]?.year,
@@ -941,43 +996,77 @@ export default function Home() {
                 <div className="panel-title split">
                   <div>
                     <KeyRound size={18} />
-                    <h2>개인 Gemini API 키</h2>
+                    <h2>개인 AI API 설정</h2>
                   </div>
-                  <span className="soft-pill">{activeGeminiApiKey ? "개인 키 사용" : "서버 키 또는 로컬 초안"}</span>
+                  <span className="soft-pill">{activeApiKey ? `${selectedAiOption.label} 개인 키 사용` : "서버 키 또는 로컬 초안"}</span>
                 </div>
                 <p className="api-key-help">
-                  공유 사이트에서는 각 사용자가 자신의 Gemini API 키를 넣어 AI 기능을 실행할 수 있습니다. 키는 생성 요청 때만 서버 API Route로 전달되며, 저장 체크를 켜지 않으면 브라우저에도 남기지 않습니다.
+                  공유 사이트에서는 각 사용자가 Gemini, OpenAI/ChatGPT, OpenRouter, OpenAI 호환 API 키 중 하나를 선택해 AI 기능을 실행할 수 있습니다. 키는 생성 요청 때만 서버 API Route로 전달되며, 저장 체크를 켜지 않으면 브라우저에도 남기지 않습니다.
                 </p>
-                <div className="api-key-row">
+                <div className="provider-settings-grid">
                   <label className="field">
-                    <span>Gemini API 키</span>
+                    <span>AI 제공자</span>
+                    <select value={aiProvider} onChange={(event) => setAiProvider(event.target.value as AiProvider)}>
+                      {AI_PROVIDER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>{selectedAiOption.keyLabel}</span>
                     <input
-                      type={showGeminiKey ? "text" : "password"}
-                      value={geminiApiKey}
-                      onChange={(event) => setGeminiApiKey(event.target.value)}
-                      placeholder="AIza..."
+                      type={showApiKey ? "text" : "password"}
+                      value={apiKeys[aiProvider] ?? ""}
+                      onChange={(event) => setApiKeys((current) => ({ ...current, [aiProvider]: event.target.value }))}
+                      placeholder={aiProvider === "gemini" ? "AIza..." : aiProvider === "openai" ? "sk-..." : "API 키"}
                       autoComplete="off"
                     />
                   </label>
-                  <button className="action-button" type="button" onClick={() => setShowGeminiKey((value) => !value)}>
-                    {showGeminiKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                    <span>{showGeminiKey ? "숨기기" : "보기"}</span>
-                  </button>
-                  <button
-                    className="action-button"
-                    type="button"
-                    onClick={() => {
-                      setGeminiApiKey("");
-                      setRememberGeminiKey(false);
-                    }}
-                    disabled={!geminiApiKey}
-                  >
-                    지우기
-                  </button>
+                  {selectedAiOption.requiresBaseUrl && (
+                    <label className="field">
+                      <span>Base URL</span>
+                      <input
+                        type="url"
+                        value={compatibleBaseUrl}
+                        onChange={(event) => setCompatibleBaseUrl(event.target.value)}
+                        placeholder="https://api.example.com/v1"
+                        autoComplete="off"
+                      />
+                    </label>
+                  )}
+                  <label className="field">
+                    <span>모델명(선택)</span>
+                    <input
+                      value={aiModels[aiProvider] ?? ""}
+                      onChange={(event) => setAiModels((current) => ({ ...current, [aiProvider]: event.target.value }))}
+                      placeholder={selectedAiOption.modelPlaceholder}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="api-key-actions">
+                    <button className="action-button" type="button" onClick={() => setShowApiKey((value) => !value)}>
+                      {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                      <span>{showApiKey ? "숨기기" : "보기"}</span>
+                    </button>
+                    <button
+                      className="action-button"
+                      type="button"
+                      onClick={() => {
+                        setApiKeys((current) => ({ ...current, [aiProvider]: "" }));
+                        setAiModels((current) => ({ ...current, [aiProvider]: "" }));
+                        if (aiProvider === "compatible") setCompatibleBaseUrl("");
+                        setRememberApiSettings(false);
+                      }}
+                      disabled={!activeApiKey && !activeAiModel && !(aiProvider === "compatible" && activeCompatibleBaseUrl)}
+                    >
+                      지우기
+                    </button>
+                  </div>
                 </div>
+                <p className="api-key-help">{selectedAiOption.help}</p>
                 <label className="check-row">
-                  <input type="checkbox" checked={rememberGeminiKey} onChange={(event) => setRememberGeminiKey(event.target.checked)} />
-                  <span>이 브라우저에 키 저장</span>
+                  <input type="checkbox" checked={rememberApiSettings} onChange={(event) => setRememberApiSettings(event.target.checked)} />
+                  <span>이 브라우저에 제공자 설정과 키 저장</span>
                 </label>
               </section>
 
@@ -987,7 +1076,7 @@ export default function Home() {
                     <MessageSquareText size={18} />
                     <h2>문안 생성</h2>
                   </div>
-                  {activeSource !== "idle" && <span className="soft-pill">{activeSource === "gemini" ? "Gemini" : activeSource === "openai" ? "OpenAI" : "로컬"}</span>}
+                  {activeSource !== "idle" && <span className="soft-pill">{aiProviderLabel(activeSource)}</span>}
                 </div>
 
                 <div className="segmented">

@@ -1,5 +1,9 @@
-import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  friendlyAiNotice,
+  generateWithConfiguredAi,
+  getAiErrorProvider,
+} from "@/lib/ai-generation";
 import {
   buildCounselingMemo,
   buildCounselingPrompt,
@@ -12,65 +16,13 @@ import {
 
 export const runtime = "nodejs";
 
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY;
-
 const SYSTEM_INSTRUCTIONS =
-  "너는 한국 학교 담임교사의 학생 성적 상담을 돕는 전문적인 보조자다. 제공된 성적자료만 근거로 삼고, 학생을 낙인찍지 않는다. 출력은 교사용 내부 참고자료이며, 학생과 상담할 때 확인할 지점과 보완 방법을 구체적으로 제안한다. 한국어 본문만 제공한다.";
-
-type GeminiResponse = {
-  candidates?: Array<{
-    finishReason?: string;
-    content?: {
-      parts?: Array<{ text?: string }>;
-    };
-  }>;
-  error?: { message?: string };
-};
-
-function geminiGenerationConfig(maxOutputTokens: number) {
-  return {
-    maxOutputTokens,
-    ...(GEMINI_MODEL.startsWith("gemini-3") ? { thinkingConfig: { thinkingLevel: "LOW" } } : {}),
-  };
-}
+  "너는 한국 중고등 담임교사의 학생 성적 상담 자료를 돕는 전문적인 보조자다. 제공된 성적자료만 근거로 삼고, 학생을 낙인찍지 않는다. 출력은 교사의 내부 참고자료이며, 학생과 상담하며 확인할 지점과 보완 방법을 구체적으로 제안한다. 반드시 JSON 객체만 출력한다.";
 
 function isCounselingRequest(value: unknown): value is CounselingRequest {
   if (!value || typeof value !== "object") return false;
   const body = value as Partial<CounselingRequest>;
   return Boolean(body.student && typeof body.student === "object");
-}
-
-function userProvidedGeminiKey(value: unknown): string {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  return trimmed.length >= 20 ? trimmed : "";
-}
-
-function extractGeminiText(data: GeminiResponse): string {
-  return (
-    data.candidates
-      ?.flatMap((candidate) => candidate.content?.parts ?? [])
-      .map((part) => part.text)
-      .filter((text): text is string => Boolean(text))
-      .join("")
-      .trim() ?? ""
-  );
-}
-
-function friendlyAiNotice(message: string): string {
-  const lower = message.toLowerCase();
-  if (lower.includes("quota") || lower.includes("rate-limit") || lower.includes("rate limit")) {
-    return "Gemini API 할당량 또는 사용 한도 문제로 로컬 상담 자료를 생성했습니다.";
-  }
-  if (lower.includes("expired") || lower.includes("api key not valid") || lower.includes("invalid api key")) {
-    return "Gemini API 키를 확인할 수 없어 로컬 상담 자료를 생성했습니다. 새 키를 발급해 환경 변수에 다시 등록해 주세요.";
-  }
-  if (lower.includes("high demand")) {
-    return "Gemini 모델 사용량이 많아 로컬 상담 자료를 생성했습니다. 잠시 뒤 다시 시도해 주세요.";
-  }
-  return message;
 }
 
 function parseJsonObject(text: string): unknown {
@@ -128,53 +80,6 @@ function normalizeGuide(value: unknown, fallback: CounselingGuide): CounselingGu
   };
 }
 
-async function generateWithGemini(prompt: string, apiKey: string): Promise<string> {
-  if (!apiKey) throw new Error("Gemini API 키가 없습니다.");
-
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: SYSTEM_INSTRUCTIONS }],
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }],
-        },
-      ],
-      generationConfig: geminiGenerationConfig(4096),
-    }),
-  });
-
-  const data = (await response.json()) as GeminiResponse;
-  if (!response.ok) throw new Error(data.error?.message ?? "Gemini 요청 중 오류가 발생했습니다.");
-
-  if (data.candidates?.[0]?.finishReason === "MAX_TOKENS") {
-    throw new Error("Gemini 응답이 토큰 제한에 걸려 중간에 끊겼습니다.");
-  }
-
-  return extractGeminiText(data);
-}
-
-async function generateWithOpenAI(prompt: string): Promise<string> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("OpenAI API 키가 없습니다.");
-
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await client.responses.create({
-    model: OPENAI_MODEL,
-    instructions: SYSTEM_INSTRUCTIONS,
-    input: prompt,
-    max_output_tokens: 1500,
-  });
-
-  return response.output_text?.trim() ?? "";
-}
-
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
 
@@ -183,39 +88,40 @@ export async function POST(request: NextRequest) {
   }
 
   const fallbackGuide = buildLocalCounselingGuide(body);
-  const fallback = fallbackGuide ? counselingGuideToMemo(fallbackGuide, body.student?.name) : buildCounselingMemo(body.student ?? null, body.teacherObservation ?? "");
+  const fallback = fallbackGuide
+    ? counselingGuideToMemo(fallbackGuide, body.student?.name)
+    : buildCounselingMemo(body.student ?? null, body.teacherObservation ?? "");
   const prompt = buildCounselingPrompt(body);
-  const requestGeminiApiKey = userProvidedGeminiKey(body.geminiApiKey);
-  const geminiApiKey = requestGeminiApiKey || GEMINI_API_KEY;
 
   try {
-    if (geminiApiKey) {
-      const generated = await generateWithGemini(prompt, geminiApiKey);
-      const guide = fallbackGuide ? normalizeGuide(parseJsonObject(generated), fallbackGuide) : null;
+    const aiResponse = await generateWithConfiguredAi({
+      prompt,
+      systemInstructions: SYSTEM_INSTRUCTIONS,
+      settings: {
+        provider: body.aiProvider,
+        apiKey: body.apiKey,
+        model: body.model,
+        baseUrl: body.baseUrl,
+        legacyGeminiApiKey: body.geminiApiKey,
+      },
+      maxOutputTokens: 1500,
+    });
+
+    if (!aiResponse) {
       return NextResponse.json({
-        memo: guide ? counselingGuideToMemo(guide, body.student?.name) : generated || fallback,
-        guide,
-        source: "gemini",
-        model: GEMINI_MODEL,
+        memo: fallback,
+        guide: fallbackGuide,
+        source: "local",
+        notice: "API 키가 없어 로컬 상담 자료를 생성했습니다.",
       });
     }
 
-    if (process.env.OPENAI_API_KEY) {
-      const generated = await generateWithOpenAI(prompt);
-      const guide = fallbackGuide ? normalizeGuide(parseJsonObject(generated), fallbackGuide) : null;
-      return NextResponse.json({
-        memo: guide ? counselingGuideToMemo(guide, body.student?.name) : generated || fallback,
-        guide,
-        source: "openai",
-        model: OPENAI_MODEL,
-      });
-    }
-
+    const guide = fallbackGuide ? normalizeGuide(parseJsonObject(aiResponse.text), fallbackGuide) : null;
     return NextResponse.json({
-      memo: fallback,
-      guide: fallbackGuide,
-      source: "local",
-      notice: "API 키가 없어 로컬 상담 자료를 생성했습니다.",
+      memo: guide ? counselingGuideToMemo(guide, body.student?.name) : aiResponse.text || fallback,
+      guide,
+      source: aiResponse.provider,
+      model: aiResponse.model,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI 요청 중 오류가 발생했습니다.";
@@ -223,7 +129,7 @@ export async function POST(request: NextRequest) {
       memo: fallback,
       guide: fallbackGuide,
       source: "local",
-      notice: friendlyAiNotice(message),
+      notice: friendlyAiNotice(message, "상담 자료를", getAiErrorProvider(error)),
     });
   }
 }

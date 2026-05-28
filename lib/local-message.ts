@@ -1,4 +1,5 @@
 import { fiveGradeLabel, formatPercentile, formatSigned, type ClassSummary, type StudentReport, type SubjectScore } from "@/lib/grade-parser";
+import type { AiProvider } from "@/lib/ai-types";
 
 export type MessageMode = "individual" | "class";
 export type Tone = "warm" | "formal" | "brief";
@@ -15,6 +16,10 @@ export type GenerateRequest = {
   mode: MessageMode;
   tone: Tone;
   includeScores: boolean;
+  aiProvider?: AiProvider;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
   geminiApiKey?: string;
   teacherName?: string;
   teacherObservation?: string;
@@ -26,6 +31,10 @@ export type GenerateRequest = {
 export type CounselingRequest = {
   student?: StudentReport;
   teacherObservation?: string;
+  aiProvider?: AiProvider;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
   geminiApiKey?: string;
   classContext?: ClassContext;
 };

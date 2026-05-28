@@ -965,6 +965,24 @@ h3 {
   align-items: end;
 }
 
+.provider-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(260px, 1.1fr) minmax(220px, 0.9fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.provider-settings-grid .field {
+  min-width: 0;
+}
+
+.api-key-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .consult-grid .panel,
 .export-card {
   display: grid;
@@ -1179,8 +1197,17 @@ textarea {
     grid-column: 1 / -1;
   }
 
-  .api-key-row {
+  .api-key-row,
+  .provider-settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .api-key-actions {
+    justify-content: stretch;
+  }
+
+  .api-key-actions .action-button {
+    flex: 1;
   }
 
   .section-heading,
