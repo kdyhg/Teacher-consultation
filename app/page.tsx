@@ -54,6 +54,7 @@ type WorkspaceTab = "briefing" | "student" | "consulting" | "exports";
 type AnalysisSection = "subjects" | "grade-distribution" | "students";
 const GEMINI_KEY_STORAGE = "teacher-consultation-gemini-key";
 const AI_SETTINGS_STORAGE = "teacher-consultation-ai-settings";
+const CUSTOM_MODEL_VALUE = "__custom";
 const NINE_GRADE_SOURCE_NOTE = "9등급 변환은 부산광역시교육청학력개발원에서 개발한 내신변환서비스를 이용했습니다.";
 
 type StoredAiSettings = {
@@ -290,6 +291,7 @@ export default function Home() {
   const [aiProvider, setAiProvider] = useState<AiProvider>(() => readStoredAiSettings()?.provider ?? "gemini");
   const [apiKeys, setApiKeys] = useState<Partial<Record<AiProvider, string>>>(() => readStoredAiSettings()?.apiKeys ?? {});
   const [aiModels, setAiModels] = useState<Partial<Record<AiProvider, string>>>(() => readStoredAiSettings()?.models ?? {});
+  const [customModelProviders, setCustomModelProviders] = useState<Partial<Record<AiProvider, boolean>>>({});
   const [compatibleBaseUrl, setCompatibleBaseUrl] = useState(() => readStoredAiSettings()?.compatibleBaseUrl ?? "");
   const [rememberApiSettings, setRememberApiSettings] = useState(() => Boolean(readStoredAiSettings()));
   const [showApiKey, setShowApiKey] = useState(false);
@@ -320,6 +322,9 @@ export default function Home() {
   const activeApiKey = (apiKeys[aiProvider] ?? "").trim();
   const activeAiModel = (aiModels[aiProvider] ?? "").trim();
   const activeCompatibleBaseUrl = compatibleBaseUrl.trim();
+  const modelIsPreset = selectedAiOption.modelOptions.some((option) => option.value === activeAiModel);
+  const usesCustomModel = Boolean(customModelProviders[aiProvider] || (activeAiModel && !modelIsPreset));
+  const selectedModelValue = usesCustomModel ? CUSTOM_MODEL_VALUE : activeAiModel;
   const sortedAnalysisStudents = useMemo(
     () =>
       analysis
@@ -452,6 +457,17 @@ export default function Home() {
     if (!analysis) return;
     const stamp = new Date().toISOString().slice(0, 16).replace(/[-T:]/g, "");
     downloadText(`\uFEFF${buildStaticHtml(analysis, includePrivateHtml)}`, `teacher-consultation-briefing-${stamp}.html`, "text/html;charset=utf-8");
+  }
+
+  function selectStudent(studentId: string | null) {
+    if (studentId === selectedId) return;
+    setSelectedId(studentId);
+    setMessage("");
+    setCounselingMemo("");
+    setCounselingGuide(null);
+    setMessageSource("idle");
+    setCounselingSource("idle");
+    setNotice("");
   }
 
   async function generateMessage() {
@@ -812,7 +828,7 @@ export default function Home() {
                             title={`${student.name}: 평균 5등급 ${gradeText(student.weightedGrade5)}, 9등급 기준 ${nineGradeText(student.weightedGrade5)}`}
                             onClick={() => {
                               const target = reports.find((report) => report.name === student.name && report.studentNumber === student.studentNumber);
-                              if (target) setSelectedId(target.id);
+                              if (target) selectStudent(target.id);
                               setActiveTab("student");
                             }}
                           >
@@ -864,7 +880,7 @@ export default function Home() {
                                     className="student-link"
                                     type="button"
                                     onClick={() => {
-                                      if (target) setSelectedId(target.id);
+                                      if (target) selectStudent(target.id);
                                       setActiveTab("student");
                                     }}
                                   >
@@ -910,7 +926,7 @@ export default function Home() {
                       className={selectedStudent?.id === report.id ? "selected" : ""}
                       key={report.id}
                       type="button"
-                      onClick={() => setSelectedId(report.id)}
+                      onClick={() => selectStudent(report.id)}
                     >
                       <span>{report.studentNumber ?? "-"}</span>
                       <strong>{report.name}</strong>
@@ -1035,14 +1051,38 @@ export default function Home() {
                     </label>
                   )}
                   <label className="field">
-                    <span>모델명(선택)</span>
-                    <input
-                      value={aiModels[aiProvider] ?? ""}
-                      onChange={(event) => setAiModels((current) => ({ ...current, [aiProvider]: event.target.value }))}
-                      placeholder={selectedAiOption.modelPlaceholder}
-                      autoComplete="off"
-                    />
+                    <span>모델</span>
+                    <select
+                      value={selectedModelValue}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (value === CUSTOM_MODEL_VALUE) {
+                          setCustomModelProviders((current) => ({ ...current, [aiProvider]: true }));
+                          if (modelIsPreset) setAiModels((current) => ({ ...current, [aiProvider]: "" }));
+                          return;
+                        }
+                        setCustomModelProviders((current) => ({ ...current, [aiProvider]: false }));
+                        setAiModels((current) => ({ ...current, [aiProvider]: value }));
+                      }}
+                    >
+                      <option value="">서버 기본값</option>
+                      {selectedAiOption.modelOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                      <option value={CUSTOM_MODEL_VALUE}>직접 입력</option>
+                    </select>
                   </label>
+                  {usesCustomModel && (
+                    <label className="field">
+                      <span>직접 입력 모델명</span>
+                      <input
+                        value={aiModels[aiProvider] ?? ""}
+                        onChange={(event) => setAiModels((current) => ({ ...current, [aiProvider]: event.target.value }))}
+                        placeholder={selectedAiOption.modelPlaceholder}
+                        autoComplete="off"
+                      />
+                    </label>
+                  )}
                   <div className="api-key-actions">
                     <button className="action-button" type="button" onClick={() => setShowApiKey((value) => !value)}>
                       {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -1069,6 +1109,38 @@ export default function Home() {
                   <span>이 브라우저에 제공자 설정과 키 저장</span>
                 </label>
               </section>
+
+              {reports.length > 0 && (
+                <section className="panel consult-student-panel">
+                  <div className="panel-title split">
+                    <div>
+                      <UserRound size={18} />
+                      <h2>상담·문안 대상 학생</h2>
+                    </div>
+                    <span className="soft-pill">
+                      {selectedStudent ? `${selectedStudent.grade ?? "-"}학년 ${selectedStudent.classNumber ?? "-"}반 ${selectedStudent.studentNumber ?? "-"}번` : "학생 선택"}
+                    </span>
+                  </div>
+                  <div className="consult-student-grid">
+                    <label className="field">
+                      <span>학생 선택</span>
+                      <select value={selectedStudent?.id ?? ""} onChange={(event) => selectStudent(event.target.value || null)}>
+                        {reports.map((report) => (
+                          <option key={report.id} value={report.id}>
+                            {report.studentNumber ?? "-"}번 {report.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="consult-student-summary">
+                      <strong>{selectedStudent?.name ?? "학생을 선택해 주세요"}</strong>
+                      <span>
+                        평균 {scoreText(selectedStudent?.averageScore)} · 5등급 평균 {gradeText(selectedAnalysisStudent?.weightedGrade5 ?? selectedStudent?.averageFiveGrade ?? null)} · 점검 과목 {selectedStudent?.watchCount ?? 0}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              )}
 
               <section className="panel">
                 <div className="panel-title split">

@@ -6,6 +6,7 @@ export type AiProviderOption = {
   label: string;
   keyLabel: string;
   modelPlaceholder: string;
+  modelOptions: Array<{ value: string; label: string }>;
   help: string;
   requiresBaseUrl?: boolean;
 };
@@ -16,6 +17,12 @@ export const AI_PROVIDER_OPTIONS: AiProviderOption[] = [
     label: "Gemini",
     keyLabel: "Gemini API 키",
     modelPlaceholder: "비워두면 서버 기본 Gemini 모델 사용",
+    modelOptions: [
+      { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+    ],
     help: "Google AI Studio에서 발급한 Gemini API 키를 사용합니다.",
   },
   {
@@ -23,6 +30,12 @@ export const AI_PROVIDER_OPTIONS: AiProviderOption[] = [
     label: "OpenAI / ChatGPT",
     keyLabel: "OpenAI API 키",
     modelPlaceholder: "비워두면 서버 기본 OpenAI 모델 사용",
+    modelOptions: [
+      { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
+      { value: "gpt-5.4", label: "GPT-5.4" },
+      { value: "gpt-4o-mini", label: "GPT-4o mini" },
+      { value: "gpt-4.1-mini", label: "GPT-4.1 mini" },
+    ],
     help: "OpenAI API 키로 ChatGPT 계열 모델을 사용합니다.",
   },
   {
@@ -30,6 +43,12 @@ export const AI_PROVIDER_OPTIONS: AiProviderOption[] = [
     label: "OpenRouter",
     keyLabel: "OpenRouter API 키",
     modelPlaceholder: "예: openai/gpt-4o-mini",
+    modelOptions: [
+      { value: "openai/gpt-4o-mini", label: "OpenAI GPT-4o mini" },
+      { value: "google/gemini-2.5-flash", label: "Google Gemini 2.5 Flash" },
+      { value: "anthropic/claude-3.5-sonnet", label: "Anthropic Claude 3.5 Sonnet" },
+      { value: "meta-llama/llama-3.1-8b-instruct", label: "Meta Llama 3.1 8B Instruct" },
+    ],
     help: "OpenRouter의 OpenAI 호환 API를 통해 여러 모델을 선택해 사용할 수 있습니다.",
   },
   {
@@ -37,6 +56,11 @@ export const AI_PROVIDER_OPTIONS: AiProviderOption[] = [
     label: "OpenAI 호환 API",
     keyLabel: "API 키",
     modelPlaceholder: "예: llama-3.3-70b-versatile",
+    modelOptions: [
+      { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B Versatile" },
+      { value: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant" },
+      { value: "qwen/qwen3-32b", label: "Qwen3 32B" },
+    ],
     help: "Groq, Together, 사내 프록시처럼 OpenAI Chat Completions 형식을 지원하는 API에 연결합니다.",
     requiresBaseUrl: true,
   },

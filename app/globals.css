@@ -951,6 +951,10 @@ h3 {
   grid-column: 1 / -1;
 }
 
+.consult-student-panel {
+  grid-column: 1 / -1;
+}
+
 .api-key-help {
   margin-bottom: 0;
   color: var(--muted);
@@ -981,6 +985,34 @@ h3 {
   gap: 8px;
   align-items: center;
   justify-content: flex-end;
+}
+
+.consult-student-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.45fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.consult-student-summary {
+  min-height: 43px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 10px 12px;
+}
+
+.consult-student-summary strong {
+  font-size: 15px;
+}
+
+.consult-student-summary span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .consult-grid .panel,
@@ -1198,7 +1230,8 @@ textarea {
   }
 
   .api-key-row,
-  .provider-settings-grid {
+  .provider-settings-grid,
+  .consult-student-grid {
     grid-template-columns: 1fr;
   }
 
