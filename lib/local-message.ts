@@ -63,6 +63,8 @@ type MessageStudentContext = {
   strengthSubject: string | null;
   focusSubject: string | null;
   focusAdvice: string;
+  trendSummary: string | null;
+  trendAdvice: string | null;
   averageScore?: number | null;
 };
 
@@ -95,6 +97,19 @@ function studyAdvice(subject: SubjectScore | null): string {
     return `${name}은 개념과 그래프, 표, 조건을 함께 묶어 정리하고 계산 과정은 순서대로 다시 써 보는 연습이 필요합니다.`;
   }
   return `${name}은 핵심 개념을 먼저 정리하고, 틀린 이유를 개념 이해, 조건 해석, 시간 관리 중 하나로 나누어 복습하면 좋겠습니다.`;
+}
+
+function trendSummaryText(student: StudentReport): string | null {
+  const trend = student.trend;
+  if (!trend) return null;
+  if (!trend.hasComparison) return trend.summary[0] ?? null;
+  return trend.needsAttention?.summary ?? trend.strongestGrowth?.summary ?? trend.summary[0] ?? null;
+}
+
+function trendAdviceText(student: StudentReport): string | null {
+  const trend = student.trend;
+  if (!trend) return null;
+  return trend.studyAdvice[0] ?? trend.needsAttention?.advice ?? null;
 }
 
 function scoreValue(value: number | null): string {
@@ -199,6 +214,8 @@ function studentContext(input: GenerateRequest): MessageStudentContext | null {
     strengthSubject: compactSubjectName(student.strongestSubject),
     focusSubject: compactSubjectName(student.focusSubject),
     focusAdvice: studyAdvice(student.focusSubject),
+    trendSummary: trendSummaryText(student),
+    trendAdvice: trendAdviceText(student),
     averageScore: input.includeScores ? student.averageScore : undefined,
   };
 }
@@ -228,6 +245,7 @@ function counselingContext(input: CounselingRequest) {
       watchCount: student.watchCount,
       overallStatus: student.overallStatus,
     },
+    trend: student.trend,
     teacherObservation: input.teacherObservation?.trim() || null,
     subjects: student.subjects.map((subject) => ({
       subject: compactSubjectName(subject) ?? subject.subject,
@@ -267,6 +285,8 @@ export function buildLocalCounselingGuide(input: CounselingRequest): CounselingG
 
   const { counselingTargets, strengths } = localCounselingTargets(student);
   const teacherObservation = input.teacherObservation?.trim() || null;
+  const trend = student.trend;
+  const trendFocus = trend?.needsAttention ?? null;
 
   return {
     summary: [
@@ -295,6 +315,7 @@ export function buildLocalCounselingGuide(input: CounselingRequest): CounselingG
       ? strengths.map((subject) => `${subjectLine(subject)}: 이 과목의 준비 방식 중 다른 과목에 옮겨 볼 습관을 물어보기`)
       : ["뚜렷한 강점 과목이 보이지 않으면, 과제 수행이나 수업 참여처럼 지속 가능한 장점을 먼저 확인해 주세요."],
     questions: [
+      ...(trendFocus ? [`${trendFocus.group} 변화 흐름에서 가장 막힌 지점이 개념, 문제 해석, 시간 배분 중 어디에 가까운지 물어보기`] : []),
       "이번 평가에서 준비한 시간과 실제 효과가 맞았는지 확인하기",
       "틀린 이유가 개념 부족, 문제 해석, 계산/실수, 시간 부족 중 어디에 가까운지 학생 스스로 고르게 하기",
       ...(counselingTargets.length
@@ -302,6 +323,7 @@ export function buildLocalCounselingGuide(input: CounselingRequest): CounselingG
         : ["가장 시간이 많이 걸린 과목과 실제 점수가 잘 나오지 않은 이유를 구분해 보기"]),
     ],
     actionPlan: [
+      ...(trend?.studyAdvice.slice(0, 2) ?? []),
       "보완 과목은 한 번에 많이 잡기보다 1~2개로 정하기",
       "매일 10분 개념 정리, 오답 2문제 재풀이, 풀이 과정 말로 설명하기 중 하나를 학생이 직접 선택하게 하기",
       "2주 뒤 확인할 증거 정하기: 오답노트 사진, 다시 푼 문제, 개념 요약 한 장 등",
@@ -368,11 +390,13 @@ export function buildLocalDraft(input: GenerateRequest): string {
     ? `앞으로는 ${context.focusSubject}에서 한 가지 습관을 조금 더 연습해 보면 좋겠습니다.`
     : "앞으로는 배운 내용을 스스로 정리하는 습관을 조금 더 연습해 보면 좋겠습니다.";
   const scorePrefix = context.averageScore !== undefined && context.averageScore !== null ? "이번 평가 결과를 함께 확인했습니다. " : "";
+  const trendSentence = context.trendSummary ? ` ${context.trendSummary}` : "";
+  const trendAdviceSentence = context.trendAdvice ? ` ${context.trendAdvice}` : "";
 
   return [
     `${context.name} 학부모님께.`,
-    `${scorePrefix}${observation} ${strength}`,
-    `${focusSentence} ${context.focusAdvice}`,
+    `${scorePrefix}${observation} ${strength}${trendSentence}`,
+    `${focusSentence} ${context.focusAdvice}${trendAdviceSentence}`,
     "가정에서는 결과를 바로 평가하기보다 공부한 방법을 먼저 물어봐 주세요. 매일 10분 복습하기, 읽은 내용을 말로 설명해 보기, 과제 계획을 함께 확인하기처럼 작게 지킬 수 있는 약속을 정해 주시면 도움이 되겠습니다.",
     "학교에서도 수업 참여와 학습 습관을 꾸준히 살피며 가정과 함께 지도하겠습니다.",
   ].join("\n\n") + teacher;
@@ -428,6 +452,7 @@ export function buildCounselingPrompt(input: CounselingRequest): string {
 
 export function buildPrompt(input: GenerateRequest): string {
   const sharedRules = [
+    "성적 변화 흐름이 제공되면 이전 학년, 1차고사, 2차고사 중 어느 시점에서 좋아졌거나 흔들렸는지 반영하고, 앞으로의 공부 방향은 하락 또는 정체 교과군 중심으로 구체화한다.",
     "한국 고등학교 담임교사가 학부모에게 보내는 문안으로 작성한다.",
     "AI가 쓴 글처럼 거창하거나 과하게 매끄러운 표현을 피한다.",
     "담임이 실제로 쓰는 짧고 자연스러운 문장으로 쓴다.",

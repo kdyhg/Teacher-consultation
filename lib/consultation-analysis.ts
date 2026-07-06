@@ -8,11 +8,14 @@ import {
   type SubjectStatus,
 } from "@/lib/grade-parser";
 import { nineGradeTargetFromFive } from "@/lib/grade-conversion";
+import { GRADE_PERIOD_LABELS, type GradePeriod } from "@/lib/grade-period";
+import { buildClassTrendSummaries, buildStudentTrend, currentRecordsForPeriod, type ClassTrendSummary } from "@/lib/trend-analysis";
 
 export type SourceType = "all-subjects" | "semester-summary" | "subject-list" | "notice" | "print-report";
 
 export type ConsultationSubjectRecord = {
   sourceFile: string;
+  period?: GradePeriod;
   subject: string;
   group: string;
   credits: number;
@@ -62,11 +65,12 @@ export type GroupBrief = {
 
 export type ConsultationAnalysis = {
   files: string[];
-  fileSummaries: Array<{ sourceFile: string; sourceType: SourceType }>;
+  fileSummaries: Array<{ sourceFile: string; sourceType: SourceType; period: GradePeriod }>;
   sourceTypes: SourceType[];
   students: ConsultationStudent[];
   subjects: SubjectBrief[];
   groups: GroupBrief[];
+  trendSummaries: ClassTrendSummary[];
   studentCount: number;
   subjectCount: number;
   classAverageScore: number | null;
@@ -82,6 +86,7 @@ type RawConsultationStudent = Omit<ConsultationStudent, "weightedGrade5" | "aver
 export type ParsedWorkbook = {
   sourceFile: string;
   sourceType: SourceType;
+  period: GradePeriod;
   reports: StudentReport[];
   analysis: ConsultationAnalysis;
   warnings: string[];
@@ -212,6 +217,7 @@ function recordToSubjectScore(record: ConsultationSubjectRecord): SubjectScore {
     subject: record.subject,
     category: record.group,
     examName: record.sourceFile,
+    period: record.period ?? "second",
     fullScore: null,
     score: record.score,
     totalScore: record.score,
@@ -233,7 +239,8 @@ function recordToSubjectScore(record: ConsultationSubjectRecord): SubjectScore {
 }
 
 function buildReportFromStudent(student: ConsultationStudent): StudentReport {
-  const subjects = student.records.map(recordToSubjectScore);
+  const currentRecords = currentRecordsForPeriod(student.records);
+  const subjects = currentRecords.map(recordToSubjectScore);
   const subjectsWithValues = subjects.filter((subject) => subject.value !== null);
   const gradeDistribution = emptyDistribution();
   for (const subject of subjects) {
@@ -269,6 +276,7 @@ function buildReportFromStudent(student: ConsultationStudent): StudentReport {
     homeroomTeacher: null,
     sourceRows: { start: 0, end: 0 },
     subjects,
+    trend: buildStudentTrend(student.records),
     attendance: null,
     averageScore: student.averageScore,
     averageDelta: student.averageDelta,
@@ -285,9 +293,10 @@ function buildReportFromStudent(student: ConsultationStudent): StudentReport {
 }
 
 function normalizeStudent(student: RawConsultationStudent): ConsultationStudent {
-  const weightedGrade5 = weightedMean(student.records.map((record) => ({ value: record.grade5, weight: record.credits })));
-  const averageScore = mean(student.records.map((record) => record.score));
-  const averageDelta = mean(student.records.map((record) => (
+  const currentRecords = currentRecordsForPeriod(student.records);
+  const weightedGrade5 = weightedMean(currentRecords.map((record) => ({ value: record.grade5, weight: record.credits })));
+  const averageScore = mean(currentRecords.map((record) => record.score));
+  const averageDelta = mean(currentRecords.map((record) => (
     record.score !== null && record.subjectAverage !== null ? record.score - record.subjectAverage : null
   )));
   const report = buildReportFromStudent({
@@ -312,17 +321,19 @@ function analysisFromStudents(
   files: string[],
   sourceTypes: SourceType[],
   warnings: string[],
-  fileSummaries = files.map((sourceFile, index) => ({ sourceFile, sourceType: sourceTypes[index] ?? sourceTypes[0] ?? "semester-summary" })),
+  fileSummaries = files.map((sourceFile, index) => ({ sourceFile, sourceType: sourceTypes[index] ?? sourceTypes[0] ?? "semester-summary", period: "second" as GradePeriod })),
 ): ConsultationAnalysis {
   const gradeDistribution = emptyDistribution();
   const nineGradeDistribution = Object.fromEntries(Array.from({ length: 9 }, (_, index) => [index + 1, 0])) as Record<number, number>;
+  const currentRecordMap = new Map(students.map((student) => [student.id, currentRecordsForPeriod(student.records)]));
 
   for (const student of students) {
     if (student.weightedGrade5 !== null) {
       const grade = Math.min(5, Math.max(1, Math.round(student.weightedGrade5))) as FiveGrade;
       gradeDistribution[grade] += 1;
     }
-    const exactNineGrade = weightedMean(student.records.map((record) => ({ value: record.grade9, weight: record.credits })));
+    const studentCurrentRecords = currentRecordMap.get(student.id) ?? [];
+    const exactNineGrade = weightedMean(studentCurrentRecords.map((record) => ({ value: record.grade9, weight: record.credits })));
     const convertedGrade = nineGradeTargetFromFive(student.weightedGrade5);
     if (convertedGrade !== null || exactNineGrade !== null) {
       const grade = convertedGrade ?? Math.min(9, Math.max(1, Math.round(exactNineGrade ?? 0)));
@@ -330,7 +341,7 @@ function analysisFromStudents(
     }
   }
 
-  const records = students.flatMap((student) => student.records);
+  const records = students.flatMap((student) => currentRecordMap.get(student.id) ?? []);
   const subjectEntries = new Map<string, ConsultationSubjectRecord[]>();
   for (const record of records) {
     const key = `${record.group}::${record.subject}`;
@@ -385,6 +396,7 @@ function analysisFromStudents(
     students,
     subjects,
     groups,
+    trendSummaries: buildClassTrendSummaries(students),
     studentCount: students.length,
     subjectCount: subjects.length,
     classAverageScore: mean(students.map((student) => student.averageScore)),
@@ -396,13 +408,14 @@ function analysisFromStudents(
   };
 }
 
-function buildStudentsFromReports(reports: StudentReport[], sourceFile: string): ConsultationStudent[] {
+function buildStudentsFromReports(reports: StudentReport[], sourceFile: string, period: GradePeriod): ConsultationStudent[] {
   return reports.map((report, index) => {
     const records = report.subjects.map((subject) => {
       const percentile = subject.percentile;
       const grade5 = subject.fiveGrade ?? grade5FromPercentile(percentile);
       return {
         sourceFile,
+        period,
         subject: subject.subject,
         group: subjectGroup(subject.subject, subject.category),
         credits: 1,
@@ -890,6 +903,19 @@ function parsePrintReport(rows: unknown[][], sourceFile: string): ConsultationSt
   return [...students.values()].map(normalizeStudent);
 }
 
+
+function applyPeriodToStudents(students: ConsultationStudent[], period: GradePeriod): ConsultationStudent[] {
+  return students.map((student) => normalizeStudent({
+    id: student.id,
+    name: student.name,
+    grade: student.grade,
+    classNumber: student.classNumber,
+    studentNumber: student.studentNumber,
+    sourceFiles: student.sourceFiles,
+    records: student.records.map((record) => ({ ...record, period })),
+  }));
+}
+
 function sourceTypeKorean(sourceType: SourceType): string {
   if (sourceType === "all-subjects") return "성적일람표 전과목";
   if (sourceType === "semester-summary") return "학기말성적종합일람표";
@@ -898,7 +924,7 @@ function sourceTypeKorean(sourceType: SourceType): string {
   return "인쇄용 성적표";
 }
 
-export function parseConsultationRows(rows: unknown[][], sourceFile: string): ParsedWorkbook {
+export function parseConsultationRows(rows: unknown[][], sourceFile: string, period: GradePeriod = "second"): ParsedWorkbook {
   const detectedSourceType = isAllSubjectsReport(rows)
     ? "all-subjects"
     : isSubjectList(rows)
@@ -908,56 +934,106 @@ export function parseConsultationRows(rows: unknown[][], sourceFile: string): Pa
         : null;
 
   if (detectedSourceType) {
-    const students = detectedSourceType === "all-subjects"
+    const parsedStudents = detectedSourceType === "all-subjects"
       ? parseAllSubjectsReport(rows, sourceFile)
       : detectedSourceType === "subject-list"
         ? parseSubjectList(rows, sourceFile)
         : parseSemesterSummary(rows, sourceFile);
+    const students = applyPeriodToStudents(parsedStudents, period);
     const warnings = students.length
       ? []
       : [`${sourceFile}: ${sourceTypeKorean(detectedSourceType)} 형식은 확인했지만 분석 가능한 성적 행을 찾지 못했습니다. 반드시 조회 후 XLS data로 저장한 파일인지 확인해 주세요.`];
     const reports = students.map(buildReportFromStudent);
-    const analysis = analysisFromStudents(students, [sourceFile], [detectedSourceType], warnings);
-    return { sourceFile, sourceType: detectedSourceType, reports, analysis, warnings };
+    const analysis = analysisFromStudents(students, [sourceFile], [detectedSourceType], warnings, [{ sourceFile, sourceType: detectedSourceType, period }]);
+    return { sourceFile, sourceType: detectedSourceType, period, reports, analysis, warnings };
   }
 
   const noticeReports = parseNeisRows(rows);
   if (noticeReports.length > 0) {
-    const students = buildStudentsFromReports(noticeReports, sourceFile);
-    const analysis = analysisFromStudents(students, [sourceFile], ["notice"], []);
-    return { sourceFile, sourceType: "notice", reports: noticeReports, analysis, warnings: [] };
+    const students = buildStudentsFromReports(noticeReports, sourceFile, period);
+    const reports = students.map(buildReportFromStudent);
+    const analysis = analysisFromStudents(students, [sourceFile], ["notice"], [], [{ sourceFile, sourceType: "notice", period }]);
+    return { sourceFile, sourceType: "notice", period, reports, analysis, warnings: [] };
   }
 
   const looksLikePrintReport = isPrintReport(rows);
   const looksLikeSemesterSummary = isSemesterSummary(rows);
   const sourceType: SourceType = looksLikePrintReport ? "print-report" : "semester-summary";
-  const students = sourceType === "print-report" ? parsePrintReport(rows, sourceFile) : parseSemesterSummary(rows, sourceFile);
+  const parsedStudents = sourceType === "print-report" ? parsePrintReport(rows, sourceFile) : parseSemesterSummary(rows, sourceFile);
+  const students = applyPeriodToStudents(parsedStudents, period);
   const warnings = students.length
     ? []
     : [`${sourceFile}: ${looksLikeSemesterSummary ? "학기말 종합일람표" : "인식 가능한 성적"} 데이터를 찾지 못했습니다.`];
   const reports = students.map(buildReportFromStudent);
-  const analysis = analysisFromStudents(students, [sourceFile], [sourceType], warnings);
+  const analysis = analysisFromStudents(students, [sourceFile], [sourceType], warnings, [{ sourceFile, sourceType, period }]);
 
-  return { sourceFile, sourceType, reports, analysis, warnings };
+  return { sourceFile, sourceType, period, reports, analysis, warnings };
 }
 
-function mergeKeyForStudent(student: ConsultationStudent): string {
-  if (student.grade && student.classNumber && student.studentNumber) {
-    return [student.grade, student.classNumber, student.studentNumber].join("-");
+function studentPeriods(student: ConsultationStudent): GradePeriod[] {
+  return [...new Set(student.records.map((record) => record.period ?? "second"))].sort((left, right) => {
+    const leftIndex = ["previous", "first", "second"].indexOf(left);
+    const rightIndex = ["previous", "first", "second"].indexOf(right);
+    return leftIndex - rightIndex;
+  });
+}
+
+function normalizedName(name: string): string {
+  return name.replace(/\s+/g, "").trim();
+}
+
+function identityKeyForStudent(student: ConsultationStudent, duplicateNames: Set<string>): string {
+  const nameKey = normalizedName(student.name);
+  if (nameKey && !isSyntheticSubjectListName(student.name) && !duplicateNames.has(nameKey)) {
+    return `name::${nameKey}`;
   }
-  return [student.grade ?? "g", student.classNumber ?? "c", student.studentNumber ?? student.name, student.name].join("-");
+  if (student.grade && student.classNumber && student.studentNumber) {
+    return `seat::${student.grade}-${student.classNumber}-${student.studentNumber}-${nameKey || "student"}`;
+  }
+  return `fallback::${student.id}`;
+}
+
+function duplicateNameWarnings(workbooks: ParsedWorkbook[]): { duplicateNames: Set<string>; warnings: string[] } {
+  const counts = new Map<GradePeriod, Map<string, Set<string>>>();
+  for (const workbook of workbooks) {
+    for (const student of workbook.analysis.students) {
+      const nameKey = normalizedName(student.name);
+      if (!nameKey || isSyntheticSubjectListName(student.name)) continue;
+      const identity = [student.grade ?? "g", student.classNumber ?? "c", student.studentNumber ?? student.id].join("-");
+      for (const period of studentPeriods(student)) {
+        const periodCounts = counts.get(period) ?? new Map<string, Set<string>>();
+        const identities = periodCounts.get(nameKey) ?? new Set<string>();
+        identities.add(identity);
+        periodCounts.set(nameKey, identities);
+        counts.set(period, periodCounts);
+      }
+    }
+  }
+
+  const duplicateNames = new Set<string>();
+  const warnings: string[] = [];
+  for (const [period, periodCounts] of counts) {
+    for (const [name, identities] of periodCounts) {
+      const count = identities.size;
+      if (count <= 1) continue;
+      duplicateNames.add(name);
+      warnings.push(`${GRADE_PERIOD_LABELS[period]} 시점에 '${name}' 이름이 ${count}명 있어 변화 분석에서 자동 병합하지 않았습니다. 해당 학생은 반/번호 기준으로 따로 표시됩니다.`);
+    }
+  }
+  return { duplicateNames, warnings };
 }
 
 function isSyntheticSubjectListName(name: string): boolean {
   return /^\d+반\s+\d+번$/.test(name);
 }
 
-function mergeStudents(workbooks: ParsedWorkbook[]): ConsultationStudent[] {
+function mergeStudents(workbooks: ParsedWorkbook[]): { students: ConsultationStudent[]; warnings: string[] } {
+  const { duplicateNames, warnings } = duplicateNameWarnings(workbooks);
   const merged = new Map<string, RawConsultationStudent>();
 
   for (const workbook of workbooks) {
     for (const student of workbook.analysis.students) {
-      const key = mergeKeyForStudent(student);
+      const key = identityKeyForStudent(student, duplicateNames);
       if (!merged.has(key)) {
         merged.set(key, {
           id: key,
@@ -972,28 +1048,35 @@ function mergeStudents(workbooks: ParsedWorkbook[]): ConsultationStudent[] {
       const target = merged.get(key);
       if (!target) continue;
       if (isSyntheticSubjectListName(target.name) && !isSyntheticSubjectListName(student.name)) target.name = student.name;
+      target.grade = target.grade ?? student.grade;
+      target.classNumber = student.classNumber ?? target.classNumber;
+      target.studentNumber = student.studentNumber ?? target.studentNumber;
       target.sourceFiles = [...new Set([...target.sourceFiles, ...student.sourceFiles])];
       target.records.push(...student.records);
     }
   }
 
-  return [...merged.values()].map(normalizeStudent).sort((a, b) => {
+  const students = [...merged.values()].map(normalizeStudent).sort((a, b) => {
     const classDiff = Number(a.classNumber ?? 0) - Number(b.classNumber ?? 0);
     if (classDiff !== 0) return classDiff;
     return Number(a.studentNumber ?? 0) - Number(b.studentNumber ?? 0) || a.name.localeCompare(b.name, "ko");
   });
+
+  return { students, warnings };
 }
 
 export function mergeConsultationWorkbooks(workbooks: ParsedWorkbook[]): MergedConsultationData {
-  const students = mergeStudents(workbooks);
+  const merged = mergeStudents(workbooks);
+  const students = merged.students;
   const reports = students.map(buildReportFromStudent);
   const files = workbooks.map((workbook) => workbook.sourceFile);
   const sourceTypes = workbooks.map((workbook) => workbook.sourceType);
-  const warnings = workbooks.flatMap((workbook) => workbook.warnings);
+  const warnings = [...workbooks.flatMap((workbook) => workbook.warnings), ...merged.warnings];
+  const fileSummaries = workbooks.map((workbook) => ({ sourceFile: workbook.sourceFile, sourceType: workbook.sourceType, period: workbook.period }));
 
   return {
     reports,
-    analysis: analysisFromStudents(students, files, sourceTypes, warnings),
+    analysis: analysisFromStudents(students, files, sourceTypes, warnings, fileSummaries),
     warnings,
   };
 }

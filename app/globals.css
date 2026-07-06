@@ -240,7 +240,8 @@ h3 {
 }
 
 .source-guide-head em,
-.detected-source-list em {
+.detected-source-list em,
+.detected-source-list b {
   border-radius: 999px;
   background: var(--blue-soft);
   color: var(--blue);
@@ -433,7 +434,7 @@ h3 {
 
 .analysis-section-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 6px;
   border: 1px solid var(--line);
@@ -1255,5 +1256,198 @@ textarea {
 
   .grade-ruler {
     padding-inline: 12px;
+  }
+}
+
+
+.period-picker-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.period-picker-help {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.period-file-list {
+  display: grid;
+  gap: 10px;
+}
+
+.period-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.period-file-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+.period-file-row select {
+  width: 100%;
+}
+
+.trend-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.trend-card,
+.student-trend-panel,
+.student-trend-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.trend-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.trend-card.growth,
+.student-trend-card.growth {
+  border-color: #a7d8c9;
+}
+
+.trend-card.decline,
+.student-trend-card.decline {
+  border-color: #f2c9a6;
+}
+
+.trend-card-head,
+.student-trend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trend-card-head strong,
+.student-trend-card strong {
+  display: block;
+  font-size: 17px;
+}
+
+.trend-card-head span,
+.trend-card small,
+.student-trend-head span,
+.student-trend-card em {
+  color: var(--muted);
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.trend-card-head em {
+  font-style: normal;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.trend-card p {
+  margin: 0;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.trend-period-bars {
+  display: grid;
+  gap: 8px;
+}
+
+.trend-period-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 44px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.trend-period-row strong {
+  text-align: right;
+}
+
+.trend-mini-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trend-mini-stats span {
+  border-radius: 999px;
+  background: #eef5f2;
+  color: #2e5548;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 9px;
+}
+
+.student-trend-panel {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 16px;
+  background: #fbfcfb;
+}
+
+.student-trend-head > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.student-trend-head h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.trend-summary-list {
+  display: grid;
+  gap: 6px;
+}
+
+.trend-summary-list p {
+  margin: 0;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.student-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.student-trend-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.student-trend-card span {
+  color: #0b5f59;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+@media (max-width: 760px) {
+  .period-file-row,
+  .trend-card-grid,
+  .student-trend-grid {
+    grid-template-columns: 1fr;
   }
 }

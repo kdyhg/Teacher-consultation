@@ -1,3 +1,6 @@
+import type { GradePeriod } from "@/lib/grade-period";
+import type { StudentTrend } from "@/lib/trend-analysis";
+
 export type SubjectStatus = "strength" | "steady" | "watch" | "missing";
 export type FiveGrade = 1 | 2 | 3 | 4 | 5;
 
@@ -16,6 +19,7 @@ export type SubjectScore = {
   subject: string;
   category: string;
   examName: string;
+  period: GradePeriod;
   fullScore: number | null;
   score: number | null;
   totalScore: number | null;
@@ -48,6 +52,7 @@ export type StudentReport = {
   homeroomTeacher: string | null;
   sourceRows: { start: number; end: number };
   subjects: SubjectScore[];
+  trend: StudentTrend | null;
   attendance: Attendance | null;
   averageScore: number | null;
   averageDelta: number | null;
@@ -271,6 +276,7 @@ function parseSubject(row: unknown[]): SubjectScore | null {
     subject,
     category,
     examName: cellText(row[2]),
+    period: "second",
     fullScore,
     score,
     totalScore,
@@ -314,6 +320,7 @@ function enrichStudent(
     | "overallStatus"
     | "strongestSubject"
     | "focusSubject"
+    | "trend"
   >,
 ): StudentReport {
   const subjectsWithValues = report.subjects.filter((subject) => subject.value !== null);
@@ -346,6 +353,7 @@ function enrichStudent(
     highGradeCount,
     lowGradeCount,
     gradeDistribution,
+    trend: null,
     overallStatus,
     strongestSubject,
     focusSubject,

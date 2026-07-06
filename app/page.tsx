@@ -19,6 +19,7 @@ import {
   MessageSquareText,
   ShieldCheck,
   Sparkles,
+  TrendingUp,
   Upload,
   UserRound,
   UsersRound,
@@ -38,6 +39,7 @@ import {
   type AiSource,
 } from "@/lib/ai-types";
 import { nineGradeRangeLabel } from "@/lib/grade-conversion";
+import { GRADE_PERIOD_OPTIONS, gradePeriodLabel, type GradePeriod } from "@/lib/grade-period";
 import {
   fiveGradeLabel,
   formatPercentile,
@@ -51,11 +53,17 @@ import type { CounselingGuide, MessageMode, Tone } from "@/lib/local-message";
 
 type MessageSource = "idle" | AiSource;
 type WorkspaceTab = "briefing" | "student" | "consulting" | "exports";
-type AnalysisSection = "subjects" | "grade-distribution" | "students";
+type AnalysisSection = "subjects" | "grade-distribution" | "trends" | "students";
 const GEMINI_KEY_STORAGE = "teacher-consultation-gemini-key";
 const AI_SETTINGS_STORAGE = "teacher-consultation-ai-settings";
 const CUSTOM_MODEL_VALUE = "__custom";
 const NINE_GRADE_SOURCE_NOTE = "9등급 변환은 부산광역시교육청학력개발원에서 개발한 내신변환서비스를 이용했습니다.";
+
+type PendingGradeFile = {
+  id: string;
+  file: File;
+  period: GradePeriod | "";
+};
 
 type StoredAiSettings = {
   provider?: AiProvider;
@@ -156,6 +164,23 @@ function subjectStatusLabel(status: SubjectScore["status"]): string {
   if (status === "watch") return "점검";
   if (status === "missing") return "자료없음";
   return "보통";
+}
+
+function trendStatusLabel(status: "growth" | "decline" | "steady" | "insufficient"): string {
+  if (status === "growth") return "상승";
+  if (status === "decline") return "하락";
+  if (status === "insufficient") return "비교 부족";
+  return "유지";
+}
+
+function changeText(value: number | null | undefined, unit = ""): string {
+  if (value === null || value === undefined) return "-";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}${unit}`;
+}
+
+function trendMetricWidth(value: number | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  return Math.max(6, 100 - gradePercent(value, 5));
 }
 
 function hasDraggedFiles(dataTransfer: DataTransfer | null): boolean {
@@ -285,6 +310,7 @@ export default function Home() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<PendingGradeFile[]>([]);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("briefing");
   const [analysisSection, setAnalysisSection] = useState<AnalysisSection>("subjects");
   const [showRanks, setShowRanks] = useState(true);
@@ -316,6 +342,7 @@ export default function Home() {
   const summary = useMemo<ClassSummary | null>(() => (reports.length ? summarizeClass(reports) : null), [reports]);
   const selectedStudent = reports.find((report) => report.id === selectedId) ?? reports[0] ?? null;
   const selectedAnalysisStudent = analysis?.students.find((student) => student.id === selectedStudent?.id || student.name === selectedStudent?.name) ?? analysis?.students[0] ?? null;
+  const selectedStudentTrend = selectedStudent?.trend ?? null;
   const selectedObservation = selectedStudent ? observations[selectedStudent.id] ?? "" : "";
   const activeSource = counselingMemo ? counselingSource : messageSource;
   const selectedAiOption = AI_PROVIDER_OPTIONS.find((option) => option.value === aiProvider) ?? AI_PROVIDER_OPTIONS[0];
@@ -333,8 +360,25 @@ export default function Home() {
     [analysis],
   );
 
-  const parseUploadedFiles = useCallback(async (files: File[]) => {
-    if (!files.length) return;
+  function queueGradeFiles(files: File[]) {
+    const validFiles = files.filter((file) => /\.(xlsx?|xlsm)$/i.test(file.name));
+    if (!validFiles.length) {
+      setParseError("XLS data로 저장한 엑셀 파일을 선택해 주세요.");
+      return;
+    }
+    setPendingFiles(validFiles.map((file) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
+      file,
+      period: "",
+    })));
+    setFileName(fileListLabel(validFiles));
+    setParseError("");
+    setWarnings([]);
+  }
+
+  const parseUploadedFiles = useCallback(async (items: Array<{ file: File; period: GradePeriod }>) => {
+    if (!items.length) return;
+    const files = items.map((item) => item.file);
     setIsParsing(true);
     setParseError("");
     setWarnings([]);
@@ -351,14 +395,15 @@ export default function Home() {
       const parsed = [];
       const nextWarnings: string[] = [];
 
-      for (const file of files) {
+      for (const item of items) {
+        const { file, period } = item;
         try {
           const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
           const sheetName = workbook.SheetNames[0];
           if (!sheetName) throw new Error("첫 번째 시트를 찾지 못했습니다.");
           const sheet = workbook.Sheets[sheetName];
           const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: false }) as unknown[][];
-          parsed.push(parseConsultationRows(rows, file.name));
+          parsed.push(parseConsultationRows(rows, file.name, period));
         } catch (error) {
           nextWarnings.push(`${file.name}: ${error instanceof Error ? error.message : "파일을 읽지 못했습니다."}`);
         }
@@ -380,6 +425,7 @@ export default function Home() {
       setSelectedId(merged.reports[0]?.id ?? null);
       setClassGrade(merged.reports[0]?.grade ?? "");
       setClassNumberInput(merged.reports[0]?.classNumber ?? "");
+      setPendingFiles([]);
       setActiveTab("briefing");
       setAnalysisSection("subjects");
     } catch (error) {
@@ -393,6 +439,15 @@ export default function Home() {
       setIsDragging(false);
     }
   }, []);
+
+  async function analyzePendingFiles() {
+    if (!pendingFiles.length) return;
+    if (pendingFiles.some((item) => !item.period)) {
+      setParseError("각 파일의 성적 시점을 이전 학년, 1차고사, 2차고사 중 하나로 선택해 주세요.");
+      return;
+    }
+    await parseUploadedFiles(pendingFiles.map((item) => ({ file: item.file, period: item.period as GradePeriod })));
+  }
 
   useEffect(() => {
     if (rememberApiSettings) {
@@ -425,7 +480,7 @@ export default function Home() {
       if (!hasDraggedFiles(event.dataTransfer)) return;
       event.preventDefault();
       const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => /\.(xlsx?|xlsm)$/i.test(file.name));
-      void parseUploadedFiles(files);
+      queueGradeFiles(files);
     }
 
     window.addEventListener("dragenter", handleDragOver);
@@ -443,7 +498,7 @@ export default function Home() {
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
-    await parseUploadedFiles(files);
+    queueGradeFiles(files);
     event.target.value = "";
   }
 
@@ -614,6 +669,42 @@ export default function Home() {
         {isParsing ? <Loader2 className="spin" size={22} /> : <ShieldCheck size={22} />}
       </section>
 
+      {pendingFiles.length > 0 && (
+        <section className="panel period-picker-panel">
+          <div className="panel-title split">
+            <div>
+              <TrendingUp size={18} />
+              <h2>파일별 성적 시점 선택</h2>
+            </div>
+            <span className="soft-pill">분석 전 필수</span>
+          </div>
+          <p className="period-picker-help">이전 학년, 1차고사, 2차고사를 동시에 넣으면 교과군별 변화와 다음 공부 방향을 함께 분석합니다. 각 파일은 반드시 나이스에서 조회 후 XLS data로 저장한 자료여야 합니다.</p>
+          <div className="period-file-list">
+            {pendingFiles.map((item) => (
+              <label className="period-file-row" key={item.id}>
+                <span>{item.file.name}</span>
+                <select
+                  value={item.period}
+                  onChange={(event) => {
+                    const value = event.target.value as GradePeriod | "";
+                    setPendingFiles((current) => current.map((file) => file.id === item.id ? { ...file, period: value } : file));
+                  }}
+                >
+                  <option value="">성적 시점 선택</option>
+                  {GRADE_PERIOD_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+          <button className="generate-button" type="button" onClick={analyzePendingFiles} disabled={isParsing || pendingFiles.some((item) => !item.period)}>
+            {isParsing ? <Loader2 className="spin" size={18} /> : <BarChart3 size={18} />}
+            <span>{isParsing ? "분석 중" : "선택한 시점으로 분석 시작"}</span>
+          </button>
+        </section>
+      )}
+
       <section className="panel upload-guide-panel">
         <div className="panel-title split">
           <div>
@@ -642,9 +733,10 @@ export default function Home() {
         {analysis?.fileSummaries.length ? (
           <div className="detected-source-list" aria-label="자동 판별 결과">
             {analysis.fileSummaries.map((file) => (
-              <span key={`${file.sourceFile}-${file.sourceType}`}>
+              <span key={`${file.sourceFile}-${file.sourceType}-${file.period}`}>
                 <strong>{sourceMetadata[file.sourceType].label}</strong>
                 <em>{sourceMetadata[file.sourceType].role}</em>
+                <b>{gradePeriodLabel(file.period)}</b>
                 {file.sourceFile}
               </span>
             ))}
@@ -714,7 +806,7 @@ export default function Home() {
                     <BarChart3 size={18} />
                     <h2>성적 분석</h2>
                   </div>
-                  <span className="soft-pill">3개 섹션</span>
+                  <span className="soft-pill">4개 섹션</span>
                 </div>
 
                 <div className="analysis-section-tabs" role="tablist" aria-label="성적 분석 섹션">
@@ -725,6 +817,10 @@ export default function Home() {
                   <button className={analysisSection === "grade-distribution" ? "active" : ""} type="button" onClick={() => setAnalysisSection("grade-distribution")}>
                     <BarChart3 size={18} />
                     <span>평균등급 분포</span>
+                  </button>
+                  <button className={analysisSection === "trends" ? "active" : ""} type="button" onClick={() => setAnalysisSection("trends")}>
+                    <TrendingUp size={18} />
+                    <span>변화 분석</span>
                   </button>
                   <button className={analysisSection === "students" ? "active" : ""} type="button" onClick={() => setAnalysisSection("students")}>
                     <UsersRound size={18} />
@@ -847,6 +943,55 @@ export default function Home() {
                   </div>
                 )}
 
+                {analysisSection === "trends" && (
+                  <div className="analysis-section">
+                    <div className="section-heading">
+                      <div>
+                        <h3>변화 분석</h3>
+                        <p>이전 학년, 1차고사, 2차고사 자료를 교과군별로 묶어 상승·하락·유지 흐름과 다음 공부 방향을 확인합니다.</p>
+                      </div>
+                    </div>
+
+                    {analysis.trendSummaries.some((trend) => trend.status !== "insufficient") ? (
+                      <div className="trend-card-grid">
+                        {analysis.trendSummaries.map((trend) => (
+                          <article className={`trend-card ${trend.status}`} key={trend.group}>
+                            <div className="trend-card-head">
+                              <div>
+                                <strong>{trend.group}</strong>
+                                <span>{trend.studentCount}명 · {trendStatusLabel(trend.status)}</span>
+                              </div>
+                              <em>{trend.gradeChange !== null ? changeText(trend.gradeChange) : "-"}</em>
+                            </div>
+                            <p>{trend.summary}</p>
+                            <div className="trend-period-bars">
+                              {GRADE_PERIOD_OPTIONS.map((option) => {
+                                const point = trend.points[option.value];
+                                return (
+                                  <div className="trend-period-row" key={`${trend.group}-${option.value}`}>
+                                    <span>{option.label}</span>
+                                    <div className="bar-track">
+                                      <div style={{ width: `${point ? trendMetricWidth(point.averageFiveGrade) : 0}%` }} />
+                                    </div>
+                                    <strong>{point ? gradeText(point.averageFiveGrade) : "-"}</strong>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="trend-mini-stats">
+                              <span>점수 {changeText(trend.scoreChange, "점")}</span>
+                              <span>평균 대비 {changeText(trend.deltaChange, "점")}</span>
+                            </div>
+                            <small>{trend.advice}</small>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-box">비교 자료가 부족합니다. 파일별 시점을 이전 학년, 1차고사, 2차고사 중 2개 이상으로 나누어 다시 분석하면 변화 흐름이 표시됩니다.</div>
+                    )}
+                  </div>
+                )}
+
                 {analysisSection === "students" && (
                   <div className="analysis-section">
                     <div className="section-heading">
@@ -898,7 +1043,7 @@ export default function Home() {
                                   </div>
                                 </td>
                                 <td>{nineGradeText(student.weightedGrade5)}</td>
-                                <td>{student.records.length}</td>
+                                <td>{target?.subjects.length ?? student.records.length}</td>
                                 <td><span className={`status ${student.status}`}>{statusLabels[student.status]}</span></td>
                                 <td>{focus}</td>
                               </tr>
@@ -969,6 +1114,30 @@ export default function Home() {
                     <strong>{selectedStudent?.watchCount ?? 0}</strong>
                   </article>
                 </div>
+
+                {selectedStudentTrend && (
+                  <section className={`student-trend-panel ${selectedStudentTrend.hasComparison ? "" : "insufficient"}`}>
+                    <div className="student-trend-head">
+                      <div>
+                        <TrendingUp size={18} />
+                        <h3>성장 흐름</h3>
+                      </div>
+                      <span>{selectedStudentTrend.periods.map(gradePeriodLabel).join(" → ")}</span>
+                    </div>
+                    <div className="trend-summary-list">
+                      {selectedStudentTrend.summary.map((item) => <p key={item}>{item}</p>)}
+                    </div>
+                    <div className="student-trend-grid">
+                      {selectedStudentTrend.groupTrends.slice(0, 4).map((trend) => (
+                        <article className={`student-trend-card ${trend.status}`} key={trend.group}>
+                          <strong>{trend.group}</strong>
+                          <span>{trendStatusLabel(trend.status)} · 5등급 {changeText(trend.gradeChange)}</span>
+                          <em>{trend.advice}</em>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 <div className="subject-table-wrap">
                   <table className="subject-table">
